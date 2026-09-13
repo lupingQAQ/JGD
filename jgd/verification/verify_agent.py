@@ -27,14 +27,11 @@ import sys
 import time
 from pathlib import Path
 
-HERE = Path(__file__).parent
-sys.path.insert(0, str(HERE))
+from jgd import PROJECT_ROOT
+from jgd.infra import chroma_store, scope, llm, matrix_agent as ma
+from jgd.mining.chains_2026 import CHAINS_2026
 
-import chroma_store
-import scope
-import llm
-import matrix_agent as ma
-from chains_2026 import CHAINS_2026
+HERE = PROJECT_ROOT
 
 STATE = scope.DATA / "verify_state.json"
 REPORT = scope.DATA / "verify_report.md"
@@ -71,7 +68,7 @@ def find_concrete_subclasses(targets: list[str], budget_s: float = 240.0) -> dic
     桥要成立必须存在具体 + Serializable 的子类作为流内载体。
     """
     import zipfile
-    import staticagent
+    from jgd.mining import staticagent
     cache: dict[str, list] = (json.loads(SUBCLASS_CACHE.read_text(encoding="utf-8"))
                               if SUBCLASS_CACHE.exists() else {})
     want = {t.replace(".", "/") for t in targets if t not in cache}
@@ -117,7 +114,7 @@ def find_concrete_subclasses(targets: list[str], budget_s: float = 240.0) -> dic
 def enrich_with_hierarchy(graded: list[dict]) -> None:
     """就地补充: 抽象标志 + 具体子类搜索结果 (只对 INTERESTING 候选)."""
     import zipfile
-    import staticagent
+    from jgd.mining import staticagent
     seen: set[str] = set()
     targets: list[str] = []
     for g in graded:

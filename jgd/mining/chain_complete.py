@@ -31,17 +31,14 @@ import time
 import zipfile
 from pathlib import Path
 
-HERE = Path(__file__).parent
-sys.path.insert(0, str(HERE))
+from jgd import PROJECT_ROOT
+from jgd.infra import chroma_store, scope, llm, matrix_agent as ma
+from jgd.mining import staticagent
 
-import chroma_store
-import scope
-import llm
-import matrix_agent as ma
-import staticagent
+HERE = PROJECT_ROOT
 
-DYN = Path.home() / "jgd/dyn"
-ECJ = Path.home() / "jgd/tools/ecj.jar"
+DYN = Path.home() / "cfx/dyn"
+ECJ = Path.home() / "cfx/tools/ecj.jar"
 DB = Path.home() / "jgd/jgd_graph.db"
 STATE = scope.DATA / "jgd_chain_state.json"
 REPORT = scope.DATA / "chain_complete_report.md"

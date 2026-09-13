@@ -17,19 +17,17 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-HERE = Path(__file__).parent
-sys.path.insert(0, str(HERE))
+from jgd import PROJECT_ROOT
+from jgd.infra import chroma_store, llm, scope
 
-import chroma_store
-import llm
+HERE = PROJECT_ROOT
 
-DYN = Path.home() / "jgd/dyn"
-ECJ = Path.home() / "jgd/tools/ecj.jar"
-IMPACT = Path.home() / "jgd/targets-impact/all-jars"
-TOP50 = Path.home() / "jgd/targets-top50"
-CLASSIC = Path.home() / "jgd/targets"
+DYN = Path.home() / "cfx/dyn"
+ECJ = Path.home() / "cfx/tools/ecj.jar"
+IMPACT = Path.home() / "cfx/targets-impact/all-jars"
+TOP50 = Path.home() / "cfx/targets-top50"
+CLASSIC = Path.home() / "cfx/targets"
 DB = Path.home() / "jgd/jgd_graph.db"
-import scope
 STATE = scope.scoped(HERE / "evolve_v2_state.json")
 
 CP = f"{DYN}:{IMPACT}/*:{CLASSIC}/*:{TOP50}/*"
@@ -380,7 +378,7 @@ class JGDEvolvingAgentV2:
                                  "source": "novel_paths"}
 
         # 来源 4: 直接扫描 JAR 找有 toString/hashCode 的可序列化类
-        import staticagent
+        from jgd.mining import staticagent
         jar_count = 0
         for jar in sorted(IMPACT.glob("*.jar")):
             jar_count += 1

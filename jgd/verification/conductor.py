@@ -21,9 +21,11 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-import scope
 
-HERE = Path(__file__).parent
+from jgd import PROJECT_ROOT
+from jgd.infra import scope
+
+HERE = PROJECT_ROOT
 STATE = scope.DATA / "jgd_conductor_state.json"
 REPORT = scope.DATA / "conductor_report.md"
 LOG = HERE / "conductor.log"
@@ -119,24 +121,26 @@ class Conductor:
                   flush=True)
 
             if "verify" not in stages:
-                run_stage(["verify_agent.py", "--max-dynamic", "8",
-                           "--max-audit", "12"])
+                run_stage(["-m", "jgd.verification.verify_agent",
+                           "--max-dynamic", "8", "--max-audit", "12"])
                 stages.append("verify")
                 self._save_partial(rnd, stages)
             if "evolve" not in stages:
-                run_stage(["evolve_v2.py", "3"], timeout=2400)
+                run_stage(["-m", "jgd.mining.evolve_v2", "3"], timeout=2400)
                 stages.append("evolve")
                 self._save_partial(rnd, stages)
 
             sig = self._signal()
             if "audit" not in stages and (
                     not prev_signal or sig["triggered"] > prev_signal["triggered"]):
-                run_stage(["verify_agent.py", "--audit-chains"])
+                run_stage(["-m", "jgd.verification.verify_agent",
+                           "--audit-chains"])
                 stages.append("audit")
                 self._save_partial(rnd, stages)
 
             if "complete" not in stages:
-                run_stage(["chain_complete.py", "--max-pairs", str(self.max_pairs)],
+                run_stage(["-m", "jgd.mining.chain_complete",
+                           "--max-pairs", str(self.max_pairs)],
                           timeout=3600)
                 stages.append("complete")
                 self._save_partial(rnd, stages)
@@ -187,7 +191,7 @@ class Conductor:
     def _ds_acceptance(self, verdict: str) -> dict:
         """R15: 终局判定 + 本轮 agent 修改(R10-R14) 必须经 ds 验收。
         用户既定规则: 实现后和 dsh 交叉验证 — 未经 ds 验收的结论不出 agent。"""
-        import llm
+        from jgd.infra import llm
         cc = read_json(scope.DATA / "jgd_chain_state.json", {}) or {}
         pb = (cc.get("coverage") or {}).get("per_bridge") or {}
         sum_total = sum(v.get("pairs_total", 0) for v in pb.values())

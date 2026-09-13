@@ -11,7 +11,9 @@ import time
 import urllib.request
 from pathlib import Path
 
-CONFIG = Path(__file__).parent / "config" / "models.json"
+from jgd import PROJECT_ROOT
+
+CONFIG = PROJECT_ROOT / "config" / "models.json"
 
 
 def _load_config() -> dict:

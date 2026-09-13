@@ -14,14 +14,10 @@ from __future__ import annotations
 
 import json
 import re
-import sys
 import zipfile
 from pathlib import Path
-import scope
 
-HERE = Path(__file__).parent
-sys.path.insert(0, str(HERE))
-import matrix_agent as ma
+from jgd.infra import matrix_agent as ma, scope
 
 # 字段: name / classes(类路径签名) / version_gate(jar名正则→适用/阻断理由)
 KNOWN_CHAINS = [

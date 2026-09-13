@@ -9,8 +9,9 @@ import json
 import os
 from pathlib import Path
 
-HERE = Path(__file__).parent
-DATA = HERE / "data"
+from jgd import PROJECT_ROOT
+
+DATA = PROJECT_ROOT / "data"
 DATA.mkdir(exist_ok=True)
 
 

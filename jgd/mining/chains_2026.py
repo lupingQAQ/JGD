@@ -1,12 +1,8 @@
 """2023-2026 公开链知识库补齐（含 JDD/GadgetBuilder/Atredis/FLASH/JDK21+ 新链）。"""
 
 import json
-import sys
-from pathlib import Path
 
-HERE = Path(__file__).parent
-sys.path.insert(0, str(HERE))
-import chroma_store
+from jgd.infra import chroma_store
 
 CHAINS_2026 = [
     # === JDD BlackHat Asia 2025 发现 ===

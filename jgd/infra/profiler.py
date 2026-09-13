@@ -14,7 +14,9 @@ import sys
 import time
 from pathlib import Path
 
-HERE = Path(__file__).parent
+from jgd import PROJECT_ROOT
+
+HERE = PROJECT_ROOT
 
 
 def _proc_cpu(pid: int) -> float:

@@ -35,11 +35,7 @@ Usage
 """
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import bcdisasm as disasm  # noqa: E402  (verified class-file reader)
+from jgd.mining import bcdisasm as disasm  # verified class-file reader
 
 TRIGGERS = ("toString", "hashCode", "equals", "compareTo")
 

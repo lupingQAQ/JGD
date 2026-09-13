@@ -12,25 +12,22 @@ import json
 import os
 import struct
 import subprocess
-import sys
 import time
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-import scope
 
-HERE = Path(__file__).parent
-sys.path.insert(0, str(HERE))
-import staticagent
-import chroma_store
-import llm
-import bridge_fix          # R6修正: 接收者感知的字段桥检测(操作数栈模拟)
+from jgd import PROJECT_ROOT
+from jgd.infra import scope, chroma_store, llm
+from jgd.mining import staticagent, bridge_fix  # R6修正: 接收者感知的字段桥检测(操作数栈模拟)
 
-DYN = Path.home() / "jgd/dyn"
-ECJ = Path.home() / "jgd/tools/ecj.jar"
-IMPACT = Path.home() / "jgd/targets-impact/all-jars"
-TOP50 = Path.home() / "jgd/targets-top50"
-CLASSIC = Path.home() / "jgd/targets"
+HERE = PROJECT_ROOT
+
+DYN = Path.home() / "cfx/dyn"
+ECJ = Path.home() / "cfx/tools/ecj.jar"
+IMPACT = Path.home() / "cfx/targets-impact/all-jars"
+TOP50 = Path.home() / "cfx/targets-top50"
+CLASSIC = Path.home() / "cfx/targets"
 STATE = scope.DATA / "matrix_state.json"
 
 

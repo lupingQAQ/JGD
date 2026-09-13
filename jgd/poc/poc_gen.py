@@ -21,15 +21,13 @@ import time
 import zipfile
 from pathlib import Path
 
-HERE = Path(__file__).parent
-sys.path.insert(0, str(HERE))
+from jgd import PROJECT_ROOT
+from jgd.infra import llm, matrix_agent as ma, scope
 
-import llm
-import matrix_agent as ma
-import scope
+HERE = PROJECT_ROOT
 
-DYN = Path.home() / "jgd/dyn"
-ECJ = Path.home() / "jgd/tools/ecj.jar"
+DYN = Path.home() / "cfx/dyn"
+ECJ = Path.home() / "cfx/tools/ecj.jar"
 POC_DIR = scope.scoped_dir(HERE / "pocs")
 CP = f"{DYN}:{ma.corpus_dir()}/*:{ma.CLASSIC}/*:{ma.TOP50}/*"
 JAVA_OPTS = ["-Xmx256m", "--add-opens", "java.base/sun.reflect=ALL-UNNAMED",
@@ -432,7 +430,7 @@ def derive_chains(cap: int = 8) -> list[dict]:
     每桥: 静态取证(bridge_detail 触发方法) → 可用载体(toString→bave/hashCode→hm),
     needs_jdk → jdk11; 装配由泛化 make_bridge 按字段类型处理。
     """
-    import matrix_agent as _ma
+    from jgd.infra import matrix_agent as _ma
     prio: list[str] = []
     ea = scope.scoped(HERE / "jgd_entry_audit.json")
     if ea.exists():
@@ -557,7 +555,7 @@ def main() -> int:
     print("=" * 64)
     print("JGDPoCGenAgent: 武器化 PoC (良性演示) — agent 默认产出")
     print("=" * 64)
-    import matrix_agent as _ma
+    from jgd.infra import matrix_agent as _ma
     corpus = _ma.corpus_dir()
     tails = select_tail(corpus)
     print(f"[poc] 目标语料: {corpus}")

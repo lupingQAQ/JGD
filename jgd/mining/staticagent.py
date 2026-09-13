@@ -14,7 +14,8 @@ import struct
 import zipfile
 from pathlib import Path
 
-from ledger import Node, add_edge, add_node
+from jgd import PROJECT_ROOT
+from jgd.infra.ledger import Node, add_edge, add_node
 
 # JDK 隐式触发 hub（知识图谱 §3.2 语义种子）
 HUBS = {
@@ -50,7 +51,7 @@ KNOWN_SERIAL_SUPERS = {  # JDK 侧可序列化祖先白名单（补无 rt.jar �
     "java/util/Date", "java/lang/Number",
 }
 
-_EVOLUTION_STATE = Path(__file__).parent / "evolution_state.json"
+_EVOLUTION_STATE = PROJECT_ROOT / "evolution_state.json"
 _ENGINE_SEEDS: list[dict] = []
 if _EVOLUTION_STATE.exists():                     # 自进化补丁：EvolutionAgent 写入的增量
     try:

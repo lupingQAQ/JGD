@@ -12,11 +12,14 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 MODULES = [
-    "audit_target.py", "conductor.py", "verify_agent.py", "evolve_v2.py",
-    "chain_complete.py", "poc_gen.py", "known_chains.py", "matrix_agent.py",
-    "staticagent.py", "ledger.py", "bcdisasm.py", "bridge_fix.py",
-    "chroma_store.py", "llm.py", "scope.py", "profiler.py", "chains_2026.py",
-    "dsh_cross.py", "dsh_final.py", "dsh_debt.py", "evidence_r52.py",
+    "jgd/cli.py", "jgd/tui.py",
+    "jgd/verification/conductor.py", "jgd/verification/verify_agent.py",
+    "jgd/verification/known_chains.py",
+    "jgd/mining/chain_complete.py", "jgd/mining/evolve_v2.py",
+    "jgd/mining/chains_2026.py", "jgd/mining/staticagent.py",
+    "jgd/mining/bcdisasm.py", "jgd/mining/bridge_fix.py",
+    "jgd/infra/llm.py", "jgd/infra/chroma_store.py", "jgd/infra/scope.py",
+    "jgd/infra/profiler.py", "jgd/infra/matrix_agent.py", "jgd/infra/ledger.py",
 ]
 
 
@@ -30,7 +33,7 @@ def test_all_modules_compile():
 
 
 def test_scope_data_root():
-    import scope
+    from jgd.infra import scope
     assert scope.DATA.exists()
     assert scope.corpus_fp()
 
@@ -57,7 +60,7 @@ def test_known_chains_runs(tmp_path):
         shutil.copy(cc_jars[0], jars / cc_jars[0].name)
         env = dict(os.environ, JGD_TARGET=str(jars))
         r = subprocess.run(
-            [sys.executable, "-u", str(ROOT / "known_chains.py")],
+            [sys.executable, "-u", "-m", "jgd.verification.known_chains"],
             capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
         assert r.returncode == 0
         assert "CC1-CC7" in r.stdout

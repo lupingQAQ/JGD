@@ -6,6 +6,8 @@ import os
 import re
 from pathlib import Path
 
+from jgd import PROJECT_ROOT
+
 CHROMA_DIR = str(Path.home() / "jgd/chromadb")
 def _collection_name() -> str:
     """R50(F1): RAG 按语料指纹分域 — 换语料自动新 collection, 杜绝跨语料污染。"""
@@ -149,7 +151,7 @@ class VStore:
 
 
 def backfill_jsonl() -> int:
-    src = Path(__file__).parent / "vecrag_store.json"
+    src = PROJECT_ROOT / "vecrag_store.json"
     if not src.exists():
         return 0
     docs = [{k: v for k, v in d.items() if k != "_tf"}
@@ -160,7 +162,7 @@ def backfill_jsonl() -> int:
 
 
 def backfill_sink_live() -> int:
-    src = Path(__file__).parent / "sink_points_live.json"
+    src = PROJECT_ROOT / "sink_points_live.json"
     if not src.exists():
         return 0
     docs: list[dict] = []
