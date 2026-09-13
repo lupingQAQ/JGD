@@ -1,0 +1,15 @@
+{
+  "_comment": "JGD dual-model config. Copy to models.json and fill in your own endpoints/keys. finder=candidate selection, verifier=adversarial audit. Any OpenAI or Anthropic compatible API works.",
+  "finder": {
+    "endpoint": "https://your-provider.com/v1/chat/completions",
+    "api_key": "sk-your-finder-key",
+    "model": "your-model-name",
+    "protocol": "openai"
+  },
+  "verifier": {
+    "endpoint": "https://another-provider.com/v1/chat/completions",
+    "api_key": "sk-your-verifier-key",
+    "model": "another-model-name",
+    "protocol": "openai"
+  }
+}

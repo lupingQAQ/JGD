@@ -1,0 +1,172 @@
+[
+  {
+    "id": "objlongpair-hashmap",
+    "tier": "T1",
+    "bridge_class": "org.apache.activemq.artemis.api.core.ObjLongPair",
+    "carrier": "HashMap.readObject → rehash",
+    "tail": "ROME ObjectBean → ToStringBean → getters",
+    "jdk": "17+",
+    "rce_closed": true,
+    "entry": "HashMap/HashSet deserialization re-hash (no BAVE dependency, works on JDK 17)",
+    "hops": [
+      "HashMap.readObject() → rehash → hash(key)",
+      "ObjLongPair.hashCode() → Objects.hash(first, second)",
+      "Arrays.hashCode() → first.hashCode()  [Object field — isInstance always true]",
+      "EqualsBean.hashCode() → beanHashCode()",
+      "ObjectBean.toString() → ToStringBean.toString()",
+      "Templates.getOutputProperties() → TemplatesImpl.newTransformer()",
+      "TemplatesImpl.defineClass() → payload static block → RCE"
+    ],
+    "sink": "TemplatesImpl.defineClass → static block",
+    "conditions": [
+      "Target deserializes untrusted Java streams (vulnerability prerequisite)",
+      "Apache ActiveMQ Artemis on classpath (broker or client ≥2.44)",
+      "ROME library on classpath (or any Object-field dispatch receiver)",
+      "JDK ≥ 17 (ObjLongPair class file version 61)"
+    ],
+    "novelty": "Entry-side T1 — ds confirmed entry_novel=true, absent from ysoserial/GadgetInspector/all public CVE writeups. Orthogonal to all known ROME entry paradigms (direct ROME key / BAVE / HotSwappableTargetSource / XString)."
+  },
+  {
+    "id": "federationconfiguration-hashmap",
+    "tier": "T2",
+    "bridge_class": "org.apache.activemq.artemis.core.config.FederationConfiguration",
+    "carrier": "HashMap.readObject → rehash",
+    "tail": "ROME ObjectBean → ToStringBean → getters",
+    "jdk": "17+",
+    "rce_closed": true,
+    "entry": "HashMap deserialization re-hash",
+    "hops": [
+      "HashMap.readObject() → rehash → hashCode()",
+      "FederationConfiguration.hashCode() → Object field forwarding",
+      "EqualsBean.hashCode() → beanHashCode()",
+      "ObjectBean.toString() → ToStringBean → getters",
+      "TemplatesImpl.defineClass() → RCE"
+    ],
+    "sink": "TemplatesImpl.defineClass",
+    "conditions": [
+      "Artemis on classpath",
+      "ROME on classpath",
+      "JDK ≥ 17"
+    ]
+  },
+  {
+    "id": "federationaddresspolicy-hashmap",
+    "tier": "T2",
+    "bridge_class": "org.apache.activemq.artemis.core.config.federation.FederationAddressPolicyConfiguration",
+    "carrier": "HashMap.readObject → rehash",
+    "tail": "ROME EqualsBean hashCode tail",
+    "jdk": "17+",
+    "rce_closed": true,
+    "entry": "HashMap deserialization re-hash",
+    "hops": [
+      "HashMap.readObject() → hashCode()",
+      "FederationAddressPolicyConfiguration.hashCode() → Object field",
+      "EqualsBean.beanHashCode() → ObjectBean.toString()",
+      "TemplatesImpl.defineClass() → RCE"
+    ],
+    "sink": "TemplatesImpl.defineClass",
+    "conditions": ["Artemis ≥2.44", "ROME", "JDK ≥ 17"]
+  },
+  {
+    "id": "federationqueuepolicy-hashmap",
+    "tier": "T2",
+    "bridge_class": "org.apache.activemq.artemis.core.config.federation.FederationQueuePolicyConfiguration",
+    "carrier": "HashMap.readObject → rehash",
+    "tail": "ROME EqualsBean hashCode tail",
+    "jdk": "17+",
+    "rce_closed": true,
+    "entry": "HashMap deserialization re-hash",
+    "hops": [
+      "HashMap.readObject() → hashCode()",
+      "FederationQueuePolicyConfiguration.hashCode() → Object field",
+      "EqualsBean.beanHashCode() → ObjectBean.toString()",
+      "TemplatesImpl.defineClass() → RCE"
+    ],
+    "sink": "TemplatesImpl.defineClass",
+    "conditions": ["Artemis ≥2.44", "ROME", "JDK ≥ 17"]
+  },
+  {
+    "id": "broadcastgroupconfiguration-hashmap",
+    "tier": "T2",
+    "bridge_class": "org.apache.activemq.artemis.api.core.BroadcastGroupConfiguration",
+    "carrier": "HashMap.readObject → rehash",
+    "tail": "ROME EqualsBean hashCode tail",
+    "jdk": "17+",
+    "rce_closed": true,
+    "entry": "HashMap deserialization re-hash",
+    "hops": [
+      "HashMap.readObject() → hashCode()",
+      "BroadcastGroupConfiguration.hashCode() → Object field",
+      "EqualsBean.beanHashCode() → ObjectBean.toString()",
+      "TemplatesImpl.defineClass() → RCE"
+    ],
+    "sink": "TemplatesImpl.defineClass",
+    "conditions": ["Artemis", "ROME", "JDK ≥ 17"]
+  },
+  {
+    "id": "mutableobj-bave",
+    "tier": "T2",
+    "bridge_class": "cn.hutool.core.lang.mutable.MutableObj",
+    "carrier": "BAVE.readObject → toString",
+    "tail": "ROME ObjectBean → ToStringBean → getters",
+    "jdk": "≤11",
+    "rce_closed": true,
+    "entry": "BadAttributeValueExpException.readObject() → val.toString()",
+    "hops": [
+      "BAVE.readObject() → val.toString()",
+      "MutableObj.toString() → value.toString() [Object field]",
+      "ObjectBean.toString() → ToStringBean.toString()",
+      "Templates.getOutputProperties() → TemplatesImpl.newTransformer()",
+      "TemplatesImpl.defineClass() → payload static block → RCE"
+    ],
+    "sink": "TemplatesImpl.defineClass",
+    "conditions": [
+      "hutool-core on classpath (extremely common in Chinese Java projects)",
+      "ROME on classpath",
+      "JDK ≤ 11 (BAVE.val is String on JDK 17)",
+      "No SecurityManager"
+    ]
+  },
+  {
+    "id": "antlr4-pair-bave",
+    "tier": "T2",
+    "bridge_class": "org.antlr.v4.runtime.misc.Pair",
+    "carrier": "BAVE.readObject → toString",
+    "tail": "ROME ObjectBean → ToStringBean → getters",
+    "jdk": "≤11",
+    "rce_closed": true,
+    "entry": "BadAttributeValueExpException.readObject() → val.toString()",
+    "hops": [
+      "BAVE.readObject() → val.toString()",
+      "Pair.toString() → String.format → a/b.toString() [both Object fields]",
+      "ObjectBean.toString() → ToStringBean.toString()",
+      "Templates.getOutputProperties() → newTransformer() → defineClass() → RCE"
+    ],
+    "sink": "TemplatesImpl.defineClass",
+    "conditions": [
+      "antlr4-runtime on classpath (Hibernate HQL, Spark SQL, graphql-java, etc.)",
+      "ROME on classpath",
+      "JDK ≤ 11"
+    ],
+    "novelty": "antlr4 Pair is ubiquitous — any framework using ANTLR 4 for parsing has this class. Not in any public gadget chain corpus."
+  },
+  {
+    "id": "ewah-hashmap",
+    "tier": "T3",
+    "bridge_class": "com.googlecode.javaewah.EWAHCompressedBitmap",
+    "carrier": "BAVE.readObject → toString / HashMap rehash",
+    "tail": "Direct field getters (limited depth)",
+    "jdk": "≤11",
+    "rce_closed": false,
+    "entry": "HashMap/BAVE deserialization",
+    "hops": [
+      "hashCode()/toString() → rlw.getRunningBit() / buffer.getWord(i)",
+      "Field forwarding to RunningLengthWord / Buffer objects"
+    ],
+    "sink": "N/A (shallow dispatch — primitive getters only)",
+    "conditions": [
+      "JavaEWAH on classpath (Lucene/Solr/Elasticsearch transitive dependency)",
+      "JDK ≤ 11"
+    ]
+  }
+]

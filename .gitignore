@@ -1,0 +1,10 @@
+config/models.json
+__pycache__/
+*.pyc
+data/*.json
+data/*.jsonl
+data/*.md
+pocs/
+audit_report/
+*.log
+ragvec.db
