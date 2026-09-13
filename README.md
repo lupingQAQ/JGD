@@ -31,7 +31,7 @@ All decisions are internalized: `JARs in → chains out`, zero intermediate user
 │   signature       bytecode         dynamic         benign      │
 │   + version       + CHA graph      + contract      payload     │
 │   gates           + dispatch       synthesis       + fire      │
-│                   edges            + 3 carriers    test       │
+│                   edges            + 5 carriers    test       │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -166,7 +166,7 @@ jgd/
 ### 2. Novel Chain Discovery (domain-exhaustive)
 - **Static**: Operand-stack symbolic execution detects receiver-bridges + argument-bridges
 - **Graph**: Real-time corpus-fingerprinted call graph + CHA dispatch edges
-- **Dynamic**: Batch-parallel JVM probes (3 carriers × field-contract synthesis × multi-JDK)
+- **Dynamic**: Batch-parallel JVM probes (5 carriers × field-contract synthesis × multi-JDK)
 - **Observability**: Marker reachability + exception stack frames + marker caller-stack capture
 
 ### 3. Adversarial Auditing
@@ -194,10 +194,11 @@ jgd/
 
 | Claim | Status |
 |-------|--------|
-| Public chains: guaranteed detection | ✅ Mechanical (finite signature set) |
-| Novel chains: domain-exhaustive | ✅ Within declared scope (ledger-verifiable) |
-| Novel chains: universally exhaustive | ❌ Undecidable (Rice's theorem) |
-| PoC: always complete output | ✅ Tail candidate loop until RCE closure |
+| Public chains: guaranteed detection | Yes — mechanical (finite signature set) |
+| Novel chains: domain-exhaustive | Yes — within declared scope (ledger-verifiable) |
+| Novel chains: universally exhaustive | No — undecidable (Rice's theorem) |
+| PoC: always complete output | Yes — tail candidate loop until RCE closure |
+| Carrier families: all classic triggers | Yes — toString/hashCode/equals/compare/compareTo |
 
 ## 📖 Documentation
 
