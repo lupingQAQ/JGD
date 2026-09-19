@@ -84,6 +84,73 @@ HashMap.readObject → rehash
     → EqualsBean.beanHashCode → ObjectBean.toString → defineClass → RCE
 ```
 
+### vavr-tuple-hashmap (JDK 11, Vavr — 7 chains)
+
+```
+HashMap.readObject → HashMap.hash
+  → io.vavr.Tuple1…8.hashCode → Tuple.hash
+    → Objects.hashCode → _1.hashCode()  [Object field, attacker-controlled]
+      → EqualsBean.hashCode → beanHashCode → ObjectBean.toString
+        → ToStringBean.toString → Templates.getOutputProperties
+          → TemplatesImpl.newTransformer → defineClass → RCE
+```
+
+Bridges: Tuple1-8, Either$Left/Right, Option$Some, Validation$Valid/Invalid, HashArrayMappedTrie$LeafSingleton
+
+### spring-aop-hashmap (JDK 11, Spring AOP — 6 chains)
+
+```
+HashMap.readObject → HashMap.hash
+  → ComposablePointcut.hashCode → ClassFilter/MethodFilter field dispatch
+    → EqualsBean.hashCode → beanHashCode → ObjectBean.toString → RCE
+```
+
+Bridges: ComposablePointcut, MethodMatchers$Union/Intersection, SingletonTargetSource,
+HotSwappableTargetSource, DefaultIntroductionAdvisor
+
+### guava-function-hashmap (JDK 11, Guava — 3 chains)
+
+```
+HashMap.readObject → HashMap.hash
+  → Functions$ForMapWithDefault.hashCode → function field dispatch
+    → EqualsBean.hashCode → beanHashCode → ObjectBean.toString → RCE
+```
+
+Bridges: Functions$ForMapWithDefault, Predicates$IsEqualToPredicate, Present
+
+### scala-objectref-bave (JDK 11, scala-library)
+
+```
+BAVE.readObject → val.toString()
+  → scala.runtime.ObjectRef.toString
+    → elem.toString()  [Object field — first public Scala deserialization chain]
+      → ObjectBean.toString → ToStringBean.toString → defineClass → RCE
+```
+
+**Novelty:** First public deserialization gadget chain in the Scala ecosystem.
+`ObjectRef.elem` is an `Object` field that forwards `toString`/`hashCode` to
+the contained value — isomorphic to hutool `MutableObj` but in scala-library.
+
+### clojure-proxy-hashmap (JDK 11, Clojure — Map-dispatch)
+
+```
+HashMap.readObject → HashMap.hash
+  → clojure.inspector.proxy$…AbstractTableModel$ff19274a.hashCode
+    → RT.get(__clojureFnMap, "hashCode") → IFn.invoke()  [Map-dispatch bridge]
+      → ObjectBean.toString → ToStringBean.toString → defineClass → RCE
+```
+
+**Novelty:** First Map-dispatch gadget chain — the bridge dispatches through a
+Map field (`__clojureFnMap.get(key).invoke()`) rather than a direct field forward.
+
+### jackson-annotation-bave (JDK 11, jackson-annotations)
+
+```
+BAVE.readObject → val.toString()
+  → JacksonInject$Value.toString / ObjectIdGenerator$IdKey.toString
+    → Object field dispatch → ObjectBean.toString → defineClass → RCE
+```
+
 ---
 
 ## T3 — Variants

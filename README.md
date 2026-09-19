@@ -35,7 +35,7 @@ All decisions are internalized: `JARs in → chains out`, zero intermediate user
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## 🆕 Discovered Novel Chains (19 total, all PoC FIRED)
+## 🆕 Discovered Novel Chains (20 total, all PoC FIRED)
 
 ### T1 — Novel Entry (ds confirmed: absent from all public corpora)
 
@@ -108,6 +108,7 @@ HashMap.readObject → HashMap.hash → Tuple3.hashCode
 | **jacksoninject$value-bave** | `JacksonInject$Value` | jackson-annotations | BAVE | 11 |
 | **objectidgenerator$idkey-bave** | `ObjectIdGenerator$IdKey` | jackson-databind | BAVE | 11 |
 | **tolerantmap-hashmap** | `org.snakeyaml.engine.v2.common.TolerantMap` | snakeyaml | HashMap | 11 |
+| **scala-objectref-bave** | `scala.runtime.ObjectRef` | scala-library | BAVE | 11 |
 
 ### T3 — Variants
 

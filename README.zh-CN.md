@@ -32,7 +32,7 @@
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## 🆕 已发现新链（共 19 条，全部 PoC 点火）
+## 🆕 已发现新链（共 20 条，全部 PoC 点火）
 
 ### T1 — 新入口（ds 确认：所有公开语料中无记录）
 
@@ -93,6 +93,7 @@ HashMap.readObject() → rehash → hash(key)
 | **jacksoninject$value** | `JacksonInject$Value` | jackson | BAVE | 11 |
 | **objectidgenerator$idkey** | `ObjectIdGenerator$IdKey` | jackson | BAVE | 11 |
 | **tolerantmap** | `TolerantMap` | snakeyaml | HashMap | 11 |
+| **scala-objectref** | `scala.runtime.ObjectRef` | scala-library | BAVE | 11 |
 
 ### T3 — 变体
 
