@@ -8,3 +8,11 @@ pocs/
 audit_report/
 *.log
 ragvec.db
+data/known_chains.db
+data/archive/
+jgd_novel_chains.*.json
+jgd_chain_audit.*.json
+_*.py
+_*.json
+verify_state.*.json
+_verify/

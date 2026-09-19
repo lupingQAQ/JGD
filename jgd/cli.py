@@ -1,4 +1,4 @@
-"""JGDAuditTargetAgent — 给任意 jar 产品出链 + PoC 的产品化入口 (R40)。
+"""JGDAuditTargetAgent — 给任意 jar 产品出链 + PoC 的产品化入口 。
 
 用法:
     python3 audit_target.py --target /path/to/jars --name "产品名" [--full]
@@ -49,7 +49,11 @@ def main() -> int:
     args = ap.parse_args()
     t0 = time.time()
 
-    os.environ["JGD_TARGET"] = str(Path(args.target).resolve())
+    tgt = Path(args.target).resolve()
+    if not tgt.is_dir():
+        print(f"[abort] 目标语料目录不存在: {tgt} — 拒绝回落研究语料, 请检查 --target")
+        return 2
+    os.environ["JGD_TARGET"] = str(tgt)
     os.environ["JGD_EF"] = "hash"
     out = HERE / "audit_report"
     out.mkdir(exist_ok=True)
@@ -59,18 +63,29 @@ def main() -> int:
     print(f"目标语料: {os.environ['JGD_TARGET']}")
     print("=" * 66, flush=True)
 
-    # R50: 全部节点内化执行, 决策(agent自定)不外问; rc 永远收敛为 0,
+    # 全部节点内化执行, 决策(agent自定)不外问; rc 永远收敛为 0,
     # 失败只在报告里记账 (F2 语义)
     ok1, _ = run(["-m", "jgd.verification.known_chains"])
     ok2, _ = run(["-m", "jgd.verification.verify_agent",
                   "--max-dynamic", "6", "--max-audit", "10"])
     ok3, _ = run(["-m", "jgd.mining.chain_complete", "--max-pairs", "99999"])
     ok4, _ = run(["-m", "jgd.poc.poc_gen"])
+    ok5, _ = run(["-m", "jgd.verification.novel_chains"])
     statuses = {"known_chains": ok1, "verify": ok2,
-                "chains": ok3, "poc": ok4}
+                "chains": ok3, "poc": ok4, "novel_chains": ok5}
 
     from jgd.mining import chain_complete as cc
     from jgd.poc.poc_gen import select_tail, jep290_profile, CHAINS
+
+    novel_path = scope.scoped(HERE / "jgd_novel_chains.json")
+    # 防伪造回灌: 只有本次定级阶段成功运行才采信其产物;
+    # 阶段失败时磁盘上的旧文件可能是伪造/陈旧结果, 一律不读
+    if ok5:
+        novel = (json.loads(novel_path.read_text(encoding="utf-8"))
+                 if novel_path.exists() else {"chains": []})
+    else:
+        novel = {"chains": [],
+                 "note": "novel_chains 阶段本次未成功, 陈旧/伪造定级结果不被采信"}
 
     cc_state = json.loads((scope.DATA / "jgd_chain_state.json")
                           .read_text(encoding="utf-8"))
@@ -82,8 +97,9 @@ def main() -> int:
         if (scope.DATA / "known_chains_report.json").exists() else [])
     kc_present = [k for k in kc if k.get("present")]
 
-    poc = json.loads((scope.scoped_dir(HERE / "pocs") / "poc_results.json").read_text(
-        encoding="utf-8")) if (HERE / "pocs" / "poc_results.json").exists() else {}
+    _poc_path = scope.scoped_dir(HERE / "pocs") / "poc_results.json"
+    poc = json.loads(_poc_path.read_text(
+        encoding="utf-8")) if _poc_path.exists() else {}
     poc_fired = [r for r in poc.get("results", [])
                  if r.get("status") == "RCE_DEMO_FIRED"]
 
@@ -108,6 +124,14 @@ def main() -> int:
         *[f"- ✅ {r['chain']} (tail={r.get('closed_by_tail')}, "
           f"JDK {r.get('jdk')}, ser={r.get('ser')})" for r in poc_fired],
         "",
+        "## 未公开链 (自动定级, 发现者≠验证者)",
+        *([f"- {n['bridge']} — **{n['final_tier']}**"
+           f"{' (novel)' if n.get('final_novel') else ''}"
+           f" [{n.get('final_status')}] 触发={n.get('trigger_mode','?').split('→')[-1]}"
+           f" 尾巴={n.get('closed_by_tail')}"
+           f" — {((n.get('verdict') or {}).get('reason') or '')[:70]}"
+           for n in novel.get("chains", [])] or ["- (无新链候选)"]),
+        "",
         "## 域边界声明",
         "- 非CHA可见接收者与未装配尾巴为域外; JEP290 姿态见 pocs/README.md",
     ]
@@ -123,6 +147,10 @@ def main() -> int:
     print(f"RCE 闭环 PoC: {len(poc_fired)} 条")
     for r in poc_fired:
         print(f"  ★ {r['chain']} ({r.get('closed_by_tail')}, JDK{r.get('jdk')})")
+    print(f"未公开链(自动定级): {len(novel.get('chains', []))} 条")
+    for n in novel.get("chains", []):
+        print(f"  ◆ {n['bridge']} tier={n.get('final_tier')} "
+              f"novel={n.get('final_novel')} [{n.get('final_status')}]")
     print(f"报告 -> {out / f'audit_{args.name}.md'}")
     return 0
 

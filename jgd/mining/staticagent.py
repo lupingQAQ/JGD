@@ -113,13 +113,13 @@ def parse_class(data: bytes) -> dict:
     def cls(idx: int) -> str:
         e = cp[idx]
         return utf(e[1]) if e and e[0] == "c" else ""
-    caccess = struct.unpack(">H", r.read(2))[0]  # R7: 捕获类级访问标志
+    caccess = struct.unpack(">H", r.read(2))[0]  # 捕获类级访问标志
     this = cls(struct.unpack(">H", r.read(2))[0])
     sup = cls(struct.unpack(">H", r.read(2))[0]) or "java/lang/Object"
     ifc_n = struct.unpack(">H", r.read(2))[0]
     ifcs = [cls(struct.unpack(">H", r.read(2))[0]) for _ in range(ifc_n)]
     fields: list[tuple[str, int]] = []
-    fields_full: list[tuple[str, int, str]] = []   # (name, access, desc) — R6修正: 保留字段类型
+    fields_full: list[tuple[str, int, str]] = []   # (name, access, desc) —  修正: 保留字段类型
     for _ in range(struct.unpack(">H", r.read(2))[0]):        # fields（J3 元数据）
         acc, name_i, _desc_i = struct.unpack(">HHH", r.read(6))
         for _a in range(struct.unpack(">H", r.read(2))[0]):   # 字段属性跳过

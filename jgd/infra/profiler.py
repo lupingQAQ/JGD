@@ -1,4 +1,4 @@
-"""Profiler — 每管线节点的 wall/CPU/peakRSS 采样 (R48)。
+"""Profiler — 每管线节点的 wall/CPU/peakRSS 采样 。
 
 用法: python3 profiler.py <label> <cmd...>
 输出: profile_<label>.json {label, wall_s, cpu_s, peak_rss_mb, cmd}

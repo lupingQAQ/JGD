@@ -10,17 +10,9 @@ from jgd import PROJECT_ROOT
 
 CHROMA_DIR = str(Path.home() / "jgd/chromadb")
 def _collection_name() -> str:
-    """R50(F1): RAG 按语料指纹分域 — 换语料自动新 collection, 杜绝跨语料污染。"""
-    t = os.environ.get("JGD_TARGET")
-    if t:
-        import hashlib
-        h = hashlib.sha256()
-        from pathlib import Path as _P
-        for j in sorted(_P(t).glob("*.jar")):
-            h.update(j.name.encode())
-            h.update(str(j.stat().st_size).encode())
-        return f"jgd_rag_{h.hexdigest()[:8]}"
-    return "jgd_rag"
+    """(F1): RAG 按语料指纹分域 — 换语料自动新 collection, 杜绝跨语料污染。"""
+    from jgd.infra import scope
+    return f"jgd_rag_{scope.corpus_fp()}" if os.environ.get("JGD_TARGET") else "jgd_rag"
 
 
 COLLECTION = "jgd_rag"

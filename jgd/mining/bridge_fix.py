@@ -95,10 +95,14 @@ def field_bridges(jar_path: str, class_name: str) -> list[dict]:
                 stack.append("NUM")
             elif nm in ("iconst_m1", "iconst_0", "iconst_1", "iconst_2", "iconst_3",
                         "iconst_4", "iconst_5", "bipush", "sipush",
-                        "ldc", "ldc_w", "ldc2_w", "aconst_null", "fconst_0",
+                        "ldc2_w", "aconst_null", "fconst_0",
                         "fconst_1", "fconst_2", "dconst_0", "dconst_1",
                         "lconst_0", "lconst_1"):
                 stack.append("CONST")
+            elif nm in ("ldc", "ldc_w"):
+                # 常量携带字面量 — Map.get 的分派键需要它
+                lit = (text or "").strip().strip('"').strip("'")
+                stack.append("CONST:%s" % lit if lit else "CONST")
             elif nm in ("astore",):
                 if stack:
                     local[int(text)] = stack.pop()
@@ -130,25 +134,48 @@ def field_bridges(jar_path: str, class_name: str) -> list[dict]:
                 pending_field = None
             elif nm in ("invokevirtual", "invokespecial", "invokeinterface"):
                 argn = _slots(res[3]) if res else 0
+                popped = []
                 for _ in range(argn):
                     if stack:
-                        stack.pop()
+                        popped.append(stack.pop())
                 recv = stack.pop() if stack else "EMPTY"
-                if recv.startswith("FIELD:") and recv[6:] in instance_fields:
-                    results.append({
-                        "trigger": m["name"],
-                        "field": recv[6:],
-                        "field_desc": field_desc.get(recv[6:], "?"),
-                        "target": "%s.%s%s" % (res[1], res[2], res[3]) if res else "?",
-                        "offset": off,
-                        "via": "recv",
-                    })
+                if recv.startswith("MAPGET:"):
+                    # Map 中介分派: field 经 Map.get(key) 后作为 invoke 接收者
+                    # (clojure proxy: __clojureFnMappings.get("hashCode").invoke())
+                    fpart, _, key = recv[7:].partition("|")
+                    if fpart in instance_fields:
+                        results.append({
+                            "trigger": m["name"],
+                            "field": fpart,
+                            "field_desc": field_desc.get(fpart, "?"),
+                            "target": "%s.%s%s" % (res[1], res[2], res[3]) if res else "?",
+                            "offset": off,
+                            "via": "mapget",
+                            "map_key": key or None,
+                            "map_iface": res[1] if res else None,
+                        })
+                elif recv.startswith("FIELD:") and recv[6:] in instance_fields:
+                    if res and res[1] == "java/util/Map" and res[2] == "get":
+                        # Map.get 本身不是分派 — 挂起为 MAPGET 等待后续 invoke
+                        keylit = ""
+                        if popped and popped[0].startswith("CONST:"):
+                            keylit = popped[0][6:]
+                        stack.append("MAPGET:%s|%s" % (recv[6:], keylit))
+                    else:
+                        results.append({
+                            "trigger": m["name"],
+                            "field": recv[6:],
+                            "field_desc": field_desc.get(recv[6:], "?"),
+                            "target": "%s.%s%s" % (res[1], res[2], res[3]) if res else "?",
+                            "offset": off,
+                            "via": "recv",
+                        })
                 rtype = (res[3] if res else "()V").split(")")[1]
                 if rtype != "V":
                     stack.append("RET")
                 pending_field = None
             elif nm == "invokestatic":
-                # R13 参数桥: 字段作为参数流入静态助手(如 ObjectEqualityComparator
+                #  参数桥: 字段作为参数流入静态助手(如 ObjectEqualityComparator
                 # .equals(a, p.a)) — 助手内部对接收者做 equals/hashCode 分派。
                 # 只认接收者桥会漏掉这种模式(antlr4 Pair 因此漏检)。
                 args = []
@@ -164,7 +191,17 @@ def field_bridges(jar_path: str, class_name: str) -> list[dict]:
                             "offset": off,
                             "via": "arg",
                         })
-                if (res[3] if res else "()V").split(")")[1] != "V":
+                rtype_s = (res[3] if res else "()V").split(")")[1]
+                # Map 中介分派(静态形态): 字段流入静态 getter(如 clojure RT.get)
+                # 的返回值随后被 invoke — 返回标记携带 field|key 供后续消费
+                f_arg = next((a for a in args
+                              if a.startswith("FIELD:")
+                              and a[6:] in instance_fields), None)
+                key_lit = next((a[6:] for a in args
+                                if a.startswith("CONST:")), "")
+                if f_arg and res and res[2] == "get" and rtype_s.startswith("L"):
+                    stack.append("MAPGET:%s|%s" % (f_arg[6:], key_lit))
+                elif rtype_s != "V":
                     stack.append("RET")
             elif nm == "invokedynamic":
                 stack.append("RET")

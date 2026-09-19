@@ -35,7 +35,7 @@ All decisions are internalized: `JARs in → chains out`, zero intermediate user
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## 🆕 Discovered Novel Chains
+## 🆕 Discovered Novel Chains (19 total, all PoC FIRED)
 
 ### T1 — Novel Entry (ds confirmed: absent from all public corpora)
 
@@ -57,22 +57,64 @@ HashMap.readObject() → rehash → hash(key)
 > GadgetInspector, and all public CVE writeups. Orthogonal to all known ROME entry
 > paradigms (direct ROME key / BAVE / HotSwappableTargetSource / XString).
 
-### T2 — New Carriers (ds confirmed CONFIRM)
+### T2 — New Bridge Classes (ds confirmed CONFIRM, novel=True)
 
-| Chain | Bridge Class | Library | Carrier | JDK | Status |
-|-------|-------------|---------|---------|-----|--------|
-| **mutableobj-bave** | `cn.hutool.core.lang.mutable.MutableObj` | hutool-core | BAVE toString | ≤11 | ✅ RCE_CLOSED |
-| **antlr4-pair-bave** | `org.antlr.v4.runtime.misc.Pair` | antlr4-runtime | BAVE toString | ≤11 | ✅ RCE_CLOSED |
-| **federationconfiguration-hashmap** | `FederationConfiguration` | Artemis | HashMap rehash | 17+ | ✅ RCE_CLOSED |
-| **federationaddresspolicy** | `FederationAddressPolicyConfiguration` | Artemis | HashMap rehash | 17+ | ✅ RCE_CLOSED |
-| **federationqueuepolicy** | `FederationQueuePolicyConfiguration` | Artemis | HashMap rehash | 17+ | ✅ RCE_CLOSED |
-| **broadcastgroupconfiguration** | `BroadcastGroupConfiguration` | Artemis | HashMap rehash | 17+ | ✅ RCE_CLOSED |
+#### Vavr family (7 chains, ds T2 novel=True)
+
+| Chain | Bridge Class | Carrier | JDK |
+|-------|-------------|---------|-----|
+| **tuple1-8-hashmap** | `io.vavr.Tuple1`…`Tuple8` | HashMap rehash | 11 |
+| **either$left-hashmap** | `io.vavr.control.Either$Left` | HashMap rehash | 11 |
+| **either$right-hashmap** | `io.vavr.control.Either$Right` | HashMap rehash | 11 |
+| **option$some-hashmap** | `io.vavr.control.Option$Some` | HashMap rehash | 11 |
+| **validation$valid-hashmap** | `io.vavr.control.Validation$Valid` | HashMap rehash | 11 |
+| **validation$invalid-hashmap** | `io.vavr.control.Validation$Invalid` | HashMap rehash | 11 |
+| **hasharraymappedtrie$leafsingleton** | `io.vavr.HashArrayMappedTrie$LeafSingleton` | HashMap rehash | 11 |
+
+```
+HashMap.readObject → HashMap.hash → Tuple3.hashCode
+  → Tuple.hash → Objects.hashCode → _1.hashCode()       [Object field, attacker-controlled]
+    → EqualsBean.hashCode → beanHashCode → ObjectBean.toString
+      → ToStringBean.toString → Templates.getOutputProperties
+        → TemplatesImpl.newTransformer → defineClass → RCE
+```
+
+#### Spring AOP family (6 chains, ds T2/T3 novel=True)
+
+| Chain | Bridge Class | Carrier | JDK |
+|-------|-------------|---------|-----|
+| **composablepointcut-hashmap** | `ComposablePointcut` | HashMap rehash | 11 |
+| **methodmatchers$unionmethodmatcher** | `MethodMatchers$UnionMethodMatcher` | HashMap rehash | 11 |
+| **methodmatchers$intersectionmethodmatcher** | `MethodMatchers$IntersectionMethodMatcher` | HashMap rehash | 11 |
+| **singletontargetsource-bave** | `SingletonTargetSource` | BAVE toString | 11 |
+| **hotswappabletargetsource-bave** | `HotSwappableTargetSource` | BAVE toString | 11 |
+| **defaultintroductionadvisor-bave** | `DefaultIntroductionAdvisor` | BAVE toString | 11 |
+
+#### Guava family (3 chains, ds T2 novel=True)
+
+| Chain | Bridge Class | Carrier | JDK |
+|-------|-------------|---------|-----|
+| **functions$formapwithdefault** | `com.google.common.base.Functions$ForMapWithDefault` | HashMap rehash | 11 |
+| **predicates$isequaltopredicate** | `com.google.common.base.Predicates$IsEqualToPredicate` | HashMap rehash | 11 |
+| **present** | `com.google.common.base.Present` | HashMap rehash | 11 |
+
+#### Other libraries
+
+| Chain | Bridge Class | Library | Carrier | JDK |
+|-------|-------------|---------|---------|-----|
+| **mutableobj-bave** | `cn.hutool.core.lang.mutable.MutableObj` | hutool-core | BAVE | ≤11 |
+| **antlr4-pair-bave** | `org.antlr.v4.runtime.misc.Pair` | antlr4-runtime | BAVE | ≤11 |
+| **clojure-proxy-hashmap** | `clojure.inspector.proxy$…AbstractTableModel$ff19274a` | clojure | HashMap | 11 |
+| **jacksoninject$value-bave** | `JacksonInject$Value` | jackson-annotations | BAVE | 11 |
+| **objectidgenerator$idkey-bave** | `ObjectIdGenerator$IdKey` | jackson-databind | BAVE | 11 |
+| **tolerantmap-hashmap** | `org.snakeyaml.engine.v2.common.TolerantMap` | snakeyaml | HashMap | 11 |
 
 ### T3 — Variants
 
 | Chain | Bridge Class | Library | Notes |
 |-------|-------------|---------|-------|
-| **ewah-hashmap** | `EWAHCompressedBitmap` | JavaEWAH (Lucene/ES) | Shallow dispatch, limited value |
+| **ewah-hashmap** | `EWAHCompressedBitmap` | JavaEWAH (Lucene/ES) | Shallow dispatch |
+| **federation*-hashmap** | `FederationConfiguration` etc. (4) | Artemis | Config class family |
 
 <details>
 <summary>📊 Full dispatch stacks (click to expand)</summary>
@@ -131,10 +173,12 @@ jgd/
 ├── audit_target.py          # Product CLI entry point
 ├── tui.py                   # Interactive TUI
 ├── jgd/            # Core agent modules (25)
-│   ├── verify_agent.py      # Bridge discovery + ds adversarial audit
-│   ├── chain_complete.py    # Chain pairing + exhaustion proof
-│   ├── poc_gen.py           # Weaponized PoC generation
-│   ├── known_chains.py      # Public chain four-state determination
+│   ├── verify_agent.py      # Bridge discovery + ds adversarial audit (incremental checkpoint)
+│   ├── chain_complete.py    # Chain pairing + exhaustion proof (per-item evidence save)
+│   ├── poc_gen.py           # Weaponized PoC generation (heq/jackson/map-dispatch tails)
+│   ├── known_chains.py      # Public chain four-state determination (155-chain SQLite)
+│   ├── build_chain_db.py    # Chain database builder (155 chains, 168 version gates)
+│   ├── novel_chains.py      # Novel chain auto-tiering (GLM propose + DS verify)
 │   ├── matrix_agent.py      # Multi-JDK probe orchestration
 │   ├── bcdisasm.py          # Pure-Python bytecode disassembler
 │   ├── bridge_fix.py        # Operand-stack symbolic execution
@@ -159,15 +203,18 @@ jgd/
 ## 🔬 How It Works
 
 ### 1. Public Chain Determination (guaranteed)
-- Class signature matching against curated corpus
-- Version gates (e.g., CC 3.2.2 blocks functors, CC4 4.6 NotSerializable, BAVE JDK17 narrows val to String)
+- **155-chain SQLite database** with per-chain: family, source, CVE, trigger method, sink type, JDK range, conditions, jar version gates
+- Class signature matching (jar-scoped) + JDK internal class detection
+- Version gates with per-jar multi-version verdicts (APPLICABLE / BLOCKED / UNVERIFIED per jar)
 - Dynamic assembly + fire verification using target's own JARs
 
 ### 2. Novel Chain Discovery (domain-exhaustive)
-- **Static**: Operand-stack symbolic execution detects receiver-bridges + argument-bridges
-- **Graph**: Real-time corpus-fingerprinted call graph + CHA dispatch edges
+- **Static**: Operand-stack symbolic execution detects receiver-bridges + argument-bridges + Map-dispatch bridges (`via=mapget`)
+- **Graph**: Real-time corpus-fingerprinted call graph + CHA dispatch edges + JDK builtin sink seeds
 - **Dynamic**: Batch-parallel JVM probes (5 carriers × field-contract synthesis × multi-JDK)
-- **Observability**: Marker reachability + exception stack frames + marker caller-stack capture
+- **Observability**: Marker reachability + exception stack frames + marker caller-stack + MAPDISPATCH signals
+- **Incremental checkpoint**: verify/chain/poc all support resume-on-same-fingerprint
+- **Adaptive scaling**: dynamic probes and ds audits scale with INTERESTING candidate count
 
 ### 3. Adversarial Auditing
 - **Finder ≠ Verifier**: GLM selects candidates, DeepSeek audits independently
@@ -176,9 +223,15 @@ jgd/
 
 ### 4. Weaponized PoC Generation
 - Chains auto-derived from mining artifacts (`derive_chains`)
-- Field-type-aware bridge assembly (`make_bridge` with Object/interface-Proxy)
-- Tail candidate loop until RCE closure (`R42 completeness cycle`)
+- Field-type-aware bridge assembly (`make_bridge` with Object/interface-Proxy/Map-injection)
+- Tail candidates: ROME (toString/hashCode), Jackson (POJONode), CC3, heq (equals carrier)
+- Complete loop until RCE closure or candidate exhaustion
 - Benign payload: writes `/tmp` marker file only
+
+### 5. Novel Chain Auto-Tiering (default pipeline stage 5)
+- RCE_DEMO_FIRED chains with non-known-family bridges are automatically tiered
+- GLM proposes tier (T1/T2/T3) + novelty rationale → DeepSeek cross-verifies (can reject/downgrade)
+- Anti-forgery guard: tier results only trusted when the stage ran successfully in current run
 
 ## ⚡ Performance
 

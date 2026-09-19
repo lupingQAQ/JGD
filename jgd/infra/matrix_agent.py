@@ -19,7 +19,7 @@ from pathlib import Path
 
 from jgd import PROJECT_ROOT
 from jgd.infra import scope, chroma_store, llm
-from jgd.mining import staticagent, bridge_fix  # R6修正: 接收者感知的字段桥检测(操作数栈模拟)
+from jgd.mining import staticagent, bridge_fix  #  修正: 接收者感知的字段桥检测(操作数栈模拟)
 
 HERE = PROJECT_ROOT
 
@@ -32,15 +32,23 @@ STATE = scope.DATA / "matrix_state.json"
 
 
 def corpus_dir() -> Path:
-    """R40: 目标语料参数化 — JGD_TARGET 指向任意 jar 产品目录,
-    默认回落研究语料。图/缓存全部按指纹自动失效。"""
+    """目标语料参数化 — JGD_TARGET 指向任意 jar 产品目录, 默认回落研究语料。"""
     import os
     t = os.environ.get("JGD_TARGET")
     if t:
         p = Path(t)
         if p.is_dir():
             return p
+        raise FileNotFoundError(
+            f"JGD_TARGET 指向的目录不存在: {t} — 拒绝静默回落研究语料"
+            "(曾导致审计报告张冠李戴); 修正 JGD_TARGET 或 unset 以使用默认研究语料")
     return IMPACT
+
+
+def corpus_fingerprint() -> str:
+    """16 位语料指纹 — verify/chain 状态隔离用(委托 scope 统一实现, 含 mtime)"""
+    from jgd.infra import scope as _scope
+    return _scope._fp16()
 
 # JDK 版本映射
 JAVA_VERSIONS = {52: 8, 53: 9, 54: 10, 55: 11, 56: 12, 57: 13, 58: 14,
@@ -164,7 +172,7 @@ def static_probe(jar_path: str, class_name: str) -> dict:
             if mn in ("toString", "hashCode", "equals", "compareTo"):
                 trigger_methods.append(mn)
 
-        # R6修正: 桥证据改为接收者感知检测。
+        #  修正: 桥证据改为接收者感知检测。
         # 旧逻辑只匹配被调方法名(忽略 owner/接收者), 产生大量假阳性
         # (String.hashCode/StringBuilder.toString/参数上的调用全部误报),
         # 同时漏掉白名单外的真转发(String.contentEquals 等)。
@@ -174,7 +182,7 @@ def static_probe(jar_path: str, class_name: str) -> dict:
         bridge_evidence = [f"{b['trigger']}→{b['field']}.{b['target']}"
                            for b in bridge_detail]
 
-        # R6修正: 开放字段判定。旧逻辑排除 final — 方向反了:
+        #  修正: 开放字段判定。旧逻辑排除 final — 方向反了:
         # ObjectInputStream 反射写字段不走构造器、不检查 final,
         # final 字段恰恰是典型的反序列化可控字段。
         # 正确排除集: static(不参与默认序列化) + transient(跳过默认序列化)。
@@ -243,14 +251,29 @@ def classify_result(result: dict) -> str:
 # 4. 主流程: 静态扫描 + 多JDK动态验证 + 分类 + 进化
 # ============================================================
 
-def scan_jars_static(jar_dir: Path, count=50, jar_limit=30) -> list[dict]:
+def _anonymous_inner(cn: str) -> bool:
+    """匿名类/lambda 形态: 任一 $ 段为纯数字/空/lambda。
+
+    具名内部类与 clojure proxy$... 形态(段为字母数字名)必须放行 —
+    Clojure1 已知链的桥类即被旧的一刀切 "$" in cn 跳过漏检。
+    """
+    for seg in cn.split("$")[1:]:
+        head = seg.split("/")[0]
+        if not head or head.isdigit() or head.startswith("lambda"):
+            return True
+    return False
+
+
+def scan_jars_static(jar_dir: Path, count=50, jar_limit=30,
+                     budget_s=None) -> list[dict]:
     """ASM 静态扫描(不需要 JVM) — 第一层过滤。
 
-    R22: jar_limit 原硬编码 30 —— 828 jar 只扫过 ~30 个, 798 个 jar 的桥类
+    jar_limit 原硬编码 30 —— 828 jar 只扫过 ~30 个, 798 个 jar 的桥类
     从未进入候选流(用户裁决链存在 → 覆盖优先)。jar_limit=None 扫全语料。
     """
     results = []
     scanned = 0
+    t0 = time.time()
     for jar in sorted(jar_dir.glob("*.jar")):
         scanned += 1
         if jar_limit is not None and scanned > jar_limit:
@@ -261,7 +284,7 @@ def scan_jars_static(jar_dir: Path, count=50, jar_limit=30) -> list[dict]:
                     if not ent.endswith(".class") or "-" in Path(ent).stem:
                         continue
                     cn = ent[:-6].replace("/", ".")
-                    if any(cn.startswith(p) for p in EXCLUDE) or "$" in cn:
+                    if any(cn.startswith(p) for p in EXCLUDE) or _anonymous_inner(cn):
                         continue
 
                     result = static_probe(str(jar), cn)
@@ -272,6 +295,10 @@ def scan_jars_static(jar_dir: Path, count=50, jar_limit=30) -> list[dict]:
                         results.append(result)
 
                     if len(results) >= count:
+                        return results
+                    if budget_s and time.time() - t0 > budget_s:
+                        print(f"[scan] 时间预算 {budget_s}s 到达, "
+                              f"已收集 {len(results)} 桥 (扫描截断, 账本记未穷尽)")
                         return results
         except Exception:
             continue
@@ -289,7 +316,7 @@ def dynamic_probe_with_jdk(result: dict, jdk_path: str) -> dict:
     n = int(time.time() * 1000) % 100000
 
     # 构建简单的运行时验证: 尝试加载类并调用 toString
-    # (R7修正: 类名必须与文件名 DynV{n}.java 一致, 否则 ECJ 报
+    # ( 修正: 类名必须与文件名 DynV{n}.java 一致, 否则 ECJ 报
     #  "public type must be defined in its own file" -> 全量 COMPILE_FAIL)
     java_code = f"""import java.io.*;
 import java.lang.reflect.*;
@@ -342,7 +369,7 @@ public class DynV{n} {{
     (DYN / f"DynV{n}.java").write_text(java_code, encoding="utf-8")
 
     # 编译(用 ECJ, 与 JDK 无关)
-    cp = f"{DYN}:{IMPACT}/*:{CLASSIC}/*:{TOP50}/*"
+    cp = f"{DYN}:{corpus_dir()}/*:{CLASSIC}/*:{TOP50}/*"
     rc, out = sh(["java", "-jar", str(ECJ), "-11", "-nowarn",
                   "-cp", cp, "-d", str(DYN),
                   str(DYN / f"DynV{n}.java")])

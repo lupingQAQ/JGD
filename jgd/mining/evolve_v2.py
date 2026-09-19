@@ -32,7 +32,7 @@ STATE = scope.scoped(HERE / "evolve_v2_state.json")
 
 CP = f"{DYN}:{IMPACT}/*:{CLASSIC}/*:{TOP50}/*"
 
-# R8: JDK17 模块封锁 — BAVE.val 反射写入需 opens java.management;
+# JDK17 模块封锁 — BAVE.val 反射写入需 opens java.management;
 # ReflectionFactory 需 opens sun.reflect (jdk.unsupported 默认开, 显式声明防漂移)
 JAVA_OPTS = ["--add-opens", "java.base/sun.reflect=ALL-UNNAMED",
              "--add-opens", "java.management/javax.management=ALL-UNNAMED"]
@@ -103,7 +103,7 @@ public class PV{n} {{
                 }} catch (Throwable t2) {{}}
             }}
             if (obj == null) {{
-                // R7: 抽象类第三通道 — Unsafe 分配不走任何构造器,
+                // 抽象类第三通道 — Unsafe 分配不走任何构造器,
                 // 与 ObjectInputStream 的分配语义一致(抽象桥类也能测转发)
                 try {{
                     Field uf = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
@@ -117,7 +117,7 @@ public class PV{n} {{
             int inj = 0; int prox = 0;
             try {{
                 for (Field f : c.getDeclaredFields()) {{
-                    // R7修正: final 字段反序列化可写(OIS 反射赋值不走构造器),
+                    //  修正: final 字段反序列化可写(OIS 反射赋值不走构造器),
                     // 正确排除集是 static+transient —— 旧探针排除 final, 恰好漏掉
                     // 最典型的攻击者可控字段(如 NamePrincipal.name)
                     if (Modifier.isStatic(f.getModifiers()) ||
@@ -128,7 +128,7 @@ public class PV{n} {{
                         v = new MV{n}();
                     }} else if (ft.isInterface() ||
                                Modifier.isAbstract(ft.getModifiers())) {{
-                        // R7: 接口/抽象字段用动态 Proxy 注入 —
+                        // 接口/抽象字段用动态 Proxy 注入 —
                         // proxy instanceof <接口> 恒真, isInstance 检查通过,
                         // 后续调用分派到 handler.invoke (标记 fire)
                         try {{
@@ -206,7 +206,7 @@ public class CV{n} {{
                 }} catch (Throwable t2) {{}}
             }}
             if (bridge == null) {{
-                try {{  // R7: 抽象类 Unsafe 通道
+                try {{  // 抽象类 Unsafe 通道
                     Field uf = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
                     uf.setAccessible(true);
                     bridge = ((sun.misc.Unsafe) uf.get(null))
@@ -218,7 +218,7 @@ public class CV{n} {{
                 return;
             }}
 
-            // 注入恶意目标到 open 字段 (R7: final 可写; 接口走 Proxy 分派)
+            // 注入恶意目标到 open 字段 (final 可写; 接口走 Proxy 分派)
             for (Field f : bridgeClass.getDeclaredFields()) {{
                 if (Modifier.isStatic(f.getModifiers()) ||
                     Modifier.isTransient(f.getModifiers())) continue;
@@ -274,7 +274,7 @@ public class CV{n} {{
 
 
 def _jdk11_java() -> str:
-    """R8: BAVE.val 在 JDK17 已收窄为 String, 载体注入只在 JDK≤11 可行;
+    """BAVE.val 在 JDK17 已收窄为 String, 载体注入只在 JDK≤11 可行;
     logback provider 实例化在 17 也被模块封锁。链 PoC 必须用 JDK 11 跑。"""
     for p in ("/usr/lib/jvm/java-11-openjdk-amd64/bin/java",
               "/usr/lib/jvm/java-11-openjdk/bin/java"):
@@ -360,7 +360,7 @@ class JGDEvolvingAgentV2:
                 if isinstance(item, tuple) and len(item) >= 2:
                     doc = item[1]
                     if isinstance(doc, dict):
-                        # R7: verify_agent 的 payload 用 cls 键; 其他来源用 class
+                        # verify_agent 的 payload 用 cls 键; 其他来源用 class
                         cls = (doc.get("payload", {}).get("class")
                                or doc.get("payload", {}).get("cls", ""))
                         if cls and is_novel(cls) and cls not in pool:
@@ -407,7 +407,7 @@ class JGDEvolvingAgentV2:
             except Exception:
                 continue
 
-        # 来源 5: verify_agent 对抗审计存活者 (R7: 验证结论必须喂回挖掘回路)
+        # 来源 5: verify_agent 对抗审计存活者 (验证结论必须喂回挖掘回路)
         # DISPUTED: ds否决但glm辩护成立 — 机制真实有争议, 最高优先深挖
         # DOWNGRADE/T3: 桥成立但价值待挖
         # REJECT: 审计知识进 RAG 作负样本过滤, 不进候选池
@@ -585,7 +585,7 @@ class JGDEvolvingAgentV2:
 
 
     def retry_chains(self):
-        """R8: 对 chain_verdict=UNKNOWN 的存量发现重跑链 PoC (修复后无需重探)."""
+        """对 chain_verdict=UNKNOWN 的存量发现重跑链 PoC (修复后无需重探)."""
         retried = 0
         for d in self.discoveries:
             ch = d.get("chain") or {}

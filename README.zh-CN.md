@@ -32,7 +32,7 @@
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## 🆕 已发现新链
+## 🆕 已发现新链（共 19 条，全部 PoC 点火）
 
 ### T1 — 新入口（ds 确认：所有公开语料中无记录）
 
@@ -51,25 +51,55 @@ HashMap.readObject() → rehash → hash(key)
 ```
 
 > **新颖性**：入口侧经对抗审计确认 T1 —— 未见于 ysoserial、GadgetInspector
-> 及全部公开 CVE writeup。与所有已知 ROME 入口范式正交（直接 ROME key /
-> BAVE / HotSwappableTargetSource / XString）。
+> 及全部公开 CVE writeup。与所有已知 ROME 入口范式正交。
 
-### T2 — 新载体（ds 确认 CONFIRM）
+### T2 — 新桥接类（ds 确认 CONFIRM novel=True）
 
-| 链 | 桥接类 | 依赖库 | 载体 | JDK | 状态 |
-|---|-------|--------|------|-----|------|
-| **mutableobj-bave** | `cn.hutool.core.lang.mutable.MutableObj` | hutool-core | BAVE toString | ≤11 | ✅ RCE已闭环 |
-| **antlr4-pair-bave** | `org.antlr.v4.runtime.misc.Pair` | antlr4-runtime | BAVE toString | ≤11 | ✅ RCE已闭环 |
-| **federationconfiguration** | `FederationConfiguration` | Artemis | HashMap rehash | 17+ | ✅ RCE已闭环 |
-| **federationaddresspolicy** | `FederationAddressPolicyConfiguration` | Artemis | HashMap rehash | 17+ | ✅ RCE已闭环 |
-| **federationqueuepolicy** | `FederationQueuePolicyConfiguration` | Artemis | HashMap rehash | 17+ | ✅ RCE已闭环 |
-| **broadcastgroupconfiguration** | `BroadcastGroupConfiguration` | Artemis | HashMap rehash | 17+ | ✅ RCE已闭环 |
+#### Vavr 家族（7 条链）
+
+| 链 | 桥接类 | 载体 | JDK |
+|---|-------|------|-----|
+| **tuple1-8-hashmap** | `io.vavr.Tuple1`…`Tuple8` | HashMap | 11 |
+| **either$left/right** | `io.vavr.control.Either$Left/Right` | HashMap | 11 |
+| **option$some** | `io.vavr.control.Option$Some` | HashMap | 11 |
+| **validation$valid/invalid** | `io.vavr.control.Validation$Valid/Invalid` | HashMap | 11 |
+| **hamt$leafsingleton** | `io.vavr.HashArrayMappedTrie$LeafSingleton` | HashMap | 11 |
+
+#### Spring AOP 家族（6 条链）
+
+| 链 | 桥接类 | 载体 | JDK |
+|---|-------|------|-----|
+| **composablepointcut** | `ComposablePointcut` | HashMap | 11 |
+| **union/intersectionmatcher** | `MethodMatchers$Union/Intersection` | HashMap | 11 |
+| **singletontargetsource** | `SingletonTargetSource` | BAVE | 11 |
+| **hotswappabletargetsource** | `HotSwappableTargetSource` | BAVE | 11 |
+| **defaultintroductionadvisor** | `DefaultIntroductionAdvisor` | BAVE | 11 |
+
+#### Guava 家族（3 条链）
+
+| 链 | 桥接类 | 载体 | JDK |
+|---|-------|------|-----|
+| **functions$formapwithdefault** | `Functions$ForMapWithDefault` | HashMap | 11 |
+| **predicates$isequalto** | `Predicates$IsEqualToPredicate` | HashMap | 11 |
+| **present** | `Present` | HashMap | 11 |
+
+#### 其他库
+
+| 链 | 桥接类 | 依赖库 | 载体 | JDK |
+|---|-------|--------|------|-----|
+| **mutableobj-bave** | `MutableObj` | hutool-core | BAVE | ≤11 |
+| **antlr4-pair-bave** | `Pair` | antlr4-runtime | BAVE | ≤11 |
+| **clojure-proxy** | `proxy$…AbstractTableModel$ff19274a` | clojure | HashMap | 11 |
+| **jacksoninject$value** | `JacksonInject$Value` | jackson | BAVE | 11 |
+| **objectidgenerator$idkey** | `ObjectIdGenerator$IdKey` | jackson | BAVE | 11 |
+| **tolerantmap** | `TolerantMap` | snakeyaml | HashMap | 11 |
 
 ### T3 — 变体
 
 | 链 | 桥接类 | 依赖库 | 备注 |
 |---|-------|--------|------|
-| **ewah-hashmap** | `EWAHCompressedBitmap` | JavaEWAH (Lucene/ES) | 浅分派，价值有限 |
+| **ewah-hashmap** | `EWAHCompressedBitmap` | JavaEWAH | 浅分派 |
+| **federation* 等 4 条** | `FederationConfiguration` 等 | Artemis | 配置类族 |
 
 <details>
 <summary>📊 完整分派栈（点击展开）</summary>

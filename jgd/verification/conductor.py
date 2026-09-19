@@ -1,4 +1,4 @@
-"""JGDConductor — 调度逻辑全部在 agent 内（R11：功能和逻辑都必须在 agent 内）。
+"""JGDConductor — 调度逻辑全部在 agent 内（功能和逻辑都必须在 agent 内）。
 
 主循环直到终局判定，单轮内 stage 顺序:
   1. verify_agent            — 修正检测 + 层次取证 + ds 对抗审计 + RAG 沉淀
@@ -163,7 +163,7 @@ class Conductor:
             if verdict == "CHAIN_COMPLETE_DEPTH2":
                 continue
             if verdict in ("NO_CHAIN", "NO_BRIDGE"):
-                # R12: 穷尽判定需两轮连续无增量 + pairs 真实尝试过(或桥池真空);
+                # 穷尽判定需两轮连续无增量 + pairs 真实尝试过(或桥池真空);
                 # 首轮/有新增量一律反馈下一轮
                 grew = (prev_signal is not None and (
                     sig["discoveries"] > prev_signal["discoveries"]
@@ -189,7 +189,7 @@ class Conductor:
         return self._finish(v)
 
     def _ds_acceptance(self, verdict: str) -> dict:
-        """R15: 终局判定 + 本轮 agent 修改(R10-R14) 必须经 ds 验收。
+        """终局判定 + 本轮 agent 修改必须经 ds 验收。
         用户既定规则: 实现后和 dsh 交叉验证 — 未经 ds 验收的结论不出 agent。"""
         from jgd.infra import llm
         cc = read_json(scope.DATA / "jgd_chain_state.json", {}) or {}
@@ -197,23 +197,23 @@ class Conductor:
         sum_total = sum(v.get("pairs_total", 0) for v in pb.values())
         sum_tried = sum(v.get("pairs_tried", 0) for v in pb.values())
         mods = [
-            "R10 ensure_graph: 图指纹校验, 语料不符实时重建 (990K节点/2.3M边)",
-            "R12 jgd_chain_audit 合并+翻供阈值: ds 非确定性下单轮翻供不推翻 CONFIRM",
-            "R12 sink 种子扩展: 14条groovy → 430个方法节点(经典RCE/JNDI/字节码族)",
-            "R13 参数桥检测: 字段作为参数流入静态助手(MurmurHash.update等)也算桥, "
+            " ensure_graph: 图指纹校验, 语料不符实时重建 (990K节点/2.3M边)",
+            " jgd_chain_audit 合并+翻供阈值: ds 非确定性下单轮翻供不推翻 CONFIRM",
+            " sink 种子扩展: 14条groovy → 430个方法节点(经典RCE/JNDI/字节码族)",
+            "参数桥检测: 字段作为参数流入静态助手(MurmurHash.update等)也算桥, "
             "修复 antlr4 Pair 漏检",
-            "R14 verdict 残留清除: 修复 R3/R4 零尝试事故(残留 NO_CHAIN 使 pair 循环首桥即 break)",
-            "R16 CHA 分派边: (接口,方法)→(实现,方法), 反向可达不再断在多态边界",
-            "R18 hop2 可达性判定: 标记物唯一可达路径论证; 写侧触发模板清除; "
+            " verdict 残留清除: 修复  零尝试事故(残留 NO_CHAIN 使 pair 循环首桥即 break)",
+            " CHA 分派边: (接口,方法)→(实现,方法), 反向可达不再断在多态边界",
+            " hop2 可达性判定: 标记物唯一可达路径论证; 写侧触发模板清除; "
             "18 对误判修正且读侧复验全过, 36/36 接收者无自定义 readObject",
-            "R19 接收者序列化钩子审计(假阳性风险标注)",
-            "R20 桥池放开: 全部 INTERESTING 参与配对(含未审计)",
-            "R21 值可达性: String 字段注入 canary, 参数流异常回显=VALUE_FLOW 证据; "
+            "接收者序列化钩子审计(假阳性风险标注)",
+            "桥池放开: 全部 INTERESTING 参与配对(含未审计)",
+            "值可达性: String 字段注入 canary, 参数流异常回显=VALUE_FLOW 证据; "
             "DEPTH2 接收者进化为下一轮桥(链延伸至深度3+)",
         ]
         prompt = (
             "你是 JGD 项目的验收审计员(dsh)。主控 agent 即将输出终局判定。\n"
-            "验收标准(域内语义, R38): 本判定只主张【声明域内】的完成 —\n"
+            "验收标准(域内语义, ): 本判定只主张【声明域内】的完成 —\n"
             "  (a) 配对覆盖 pairs_tried==pairs_total 且逐桥账本一致\n"
             "  (b) 空池桥=枚举已执行结果为空(CHA+≤3跳静态边界, 显式声明)\n"
             "  (c) 环境阻塞对显式降级(env_blocked), 不计入已验证\n"
@@ -264,7 +264,7 @@ class Conductor:
             self.state["pending_verdict"] = None
             self.state["acceptance_blocked"] = False
         else:
-            # R15: ds 拒收 → 判定不算数, 挖掘继续 (延长轮次由 run() 开头处理)
+            # ds 拒收 → 判定不算数, 挖掘继续 (延长轮次由 run() 开头处理)
             self.state["verdict"] = None
             self.state["pending_verdict"] = verdict
             self.state["acceptance_blocked"] = True
