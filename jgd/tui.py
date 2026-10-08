@@ -194,10 +194,15 @@ def main() -> int:
             print(f"")
             print(f"  {DIM}{s['back']}{R}")
 
-        # Input
+        # termios.error is NOT an OSError subclass: gate non-tty stdin before
+        # tcgetattr instead of trying to catch it afterwards
         try:
             import termios
             import tty
+            _has_tty = sys.stdin.isatty()
+        except ImportError:
+            _has_tty = False
+        if _has_tty:
             fd = sys.stdin.fileno()
             old = termios.tcgetattr(fd)
             try:
@@ -205,7 +210,7 @@ def main() -> int:
                 ch = sys.stdin.read(1)
             finally:
                 termios.tcsetattr(fd, termios.TCSADRAIN, old)
-        except (ImportError, OSError):
+        else:
             ch = input().strip()[:1] or "q"
 
         if ch in ("q", "Q", "\x03"):
