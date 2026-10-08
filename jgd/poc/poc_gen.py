@@ -719,7 +719,7 @@ def main() -> int:
                   f"当前语料, 已剔除(桥不在场则链不可组装, 不空跑)")
     if not chains:
         print("[poc] 当前语料无任何已挖掘/兜底链的桥类在场 — PoC 阶段跳过")
-        POC_DIR.mkdir(exist_ok=True)
+        POC_DIR.mkdir(parents=True, exist_ok=True)
         (POC_DIR / "poc_results.json").write_text(json.dumps(
             {"results": [], "acceptance": "SKIPPED_NO_BRIDGE_IN_TARGET",
              "corpus": str(corpus)}, ensure_ascii=False, indent=1),
@@ -767,7 +767,7 @@ def main() -> int:
             f"- 利用条件: 任意反序列化入口 + {r.get('bridge', '?').split('.')[0]}"
             f" 相关库在 classpath + ROME + JDK {r.get('jdk', '?')}",
             ""]
-    POC_DIR.mkdir(exist_ok=True)
+    POC_DIR.mkdir(parents=True, exist_ok=True)
     (POC_DIR / "README.md").write_text("\n".join(lines), encoding="utf-8")
 
     acc = ds_verify(results)

@@ -154,6 +154,11 @@ def render_detail(c: dict, lang: str = "en") -> list[str]:
 
 
 def main() -> int:
+    for _s in (sys.stdout, sys.stderr):
+        try:
+            _s.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
     lang = "en"
     data_path = HERE / "examples" / "chains.json"
     chains = load_chains(data_path)
@@ -171,7 +176,7 @@ def main() -> int:
         # Header
         print(f"  {BOLD}{CYN}╔{'═'*58}╗{R}")
         print(f"  {BOLD}{CYN}║{R}  {BOLD}{MAG}⚡ {s['title']}{R}{'':<{58-len(s['title'])-4}}{BOLD}{CYN}║{R}")
-        print(f"  {BOLD}{CYN}║{R}  {DIM}{s['subtitle']}{'':<{58-len(s['subtitle'])}}{BOLD}{CYN}║{R}")
+        print(f"  {BOLD}{CYN}║{R}  {DIM}{s['subtitle']}{'':<{max(1, 58 - len(s['subtitle']))}}{BOLD}{CYN}║{R}")
         print(f"  {BOLD}{CYN}╚{'═'*58}╝{R}")
         print(f"")
 

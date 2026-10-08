@@ -32,15 +32,21 @@ def run(cmd: list[str], timeout: int = 3000) -> tuple[bool, str]:
     print(f"$ {' '.join(cmd)}", flush=True)
     try:
         p = subprocess.run([sys.executable, "-u", *cmd], capture_output=True,
-                           text=True, timeout=timeout, cwd=HERE)
+                           timeout=timeout, cwd=HERE)
     except subprocess.TimeoutExpired:
         return False, "TIMEOUT"
-    tail = "\n".join((p.stdout + p.stderr).splitlines()[-30:])
+    out = (p.stdout or b"") + (p.stderr or b"")
+    tail = "\n".join(out.decode("utf-8", "replace").splitlines()[-30:])
     print("\n".join("  | " + ln for ln in tail.splitlines()[-12:]), flush=True)
     return p.returncode == 0, tail
 
 
 def main() -> int:
+    for _s in (sys.stdout, sys.stderr):
+        try:
+            _s.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
     ap = argparse.ArgumentParser()
     ap.add_argument("--target", required=True, help="目标 jar 目录")
     ap.add_argument("--name", default="unnamed-target")

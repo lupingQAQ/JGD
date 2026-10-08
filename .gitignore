@@ -13,6 +13,7 @@ data/archive/
 jgd_novel_chains.*.json
 jgd_chain_audit.*.json
 _*.py
+!jgd/__main__.py
 _*.json
 verify_state.*.json
 _verify/

@@ -74,7 +74,16 @@ def _hash_dense(text: str) -> list[float]:
 class VStore:
     def __init__(self) -> None:
         import os
-        import chromadb
+        try:
+            import chromadb
+        except ImportError:
+            # chromadb 是可选依赖(README): 未安装时 RAG 持久化关闭,
+            # 全部存储操作降级为空操作, 挖掘/验证/PoC 主流程不受影响。
+            # (单文件发布二进制即以此形态运行)
+            self.client = None
+            self.col = None
+            self.mode = "disabled"
+            return
         self.client = chromadb.PersistentClient(path=CHROMA_DIR)
         mode = os.environ.get("JGD_EF", "minilm")
         if mode == "minilm":
@@ -89,6 +98,8 @@ class VStore:
         self.mode = "chroma-hash-dense"
 
     def add(self, docs: list[dict]) -> None:
+        if self.mode == "disabled":
+            return
         if not docs:
             return
         uniq: dict[str, dict] = {}
@@ -106,9 +117,13 @@ class VStore:
                             embeddings=[_hash_dense(t) for t in texts])
 
     def count(self) -> int:
+        if self.mode == "disabled":
+            return 0
         return self.col.count()
 
     def stats(self) -> dict:
+        if self.mode == "disabled":
+            return {}
         out: dict[str, int] = {}
         got = self.col.get(include=["metadatas"])
         for m in got.get("metadatas") or []:
@@ -117,6 +132,8 @@ class VStore:
         return out
 
     def query(self, text: str, topk: int = 6, where: dict | None = None):
+        if self.mode == "disabled":
+            return []
         if self.mode == "chroma-default-minilm":
             r = self.col.query(query_texts=[_expand_query(text)], n_results=min(topk, max(self.count(), 1)),
                                where=where, include=["documents", "metadatas", "distances"])
