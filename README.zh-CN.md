@@ -9,6 +9,7 @@
 
 🌐 **[English](README.md)**
 
+> **v0.3.0（2026-10-28）**：新增确定性 `jgd poc`、延迟 `hmz:` 反序列化闭链、JVM 批量动态探针和 MCP `jgd_poc`；五个开源产品已在隔离 Linux VM 中完成动态验证。
 ---
 
 ## 什么是 JGD？

@@ -9,6 +9,7 @@
 
 🌐 **[中文版](README.zh-CN.md)**
 
+> **v0.3.0 (2026-10-28)**: deterministic `jgd poc`, deferred `hmz:` closure, JVM batch dynamic probes, MCP `jgd_poc`, and isolated-Linux-VM validation for five open-source products.
 ---
 
 ## What is JGD?
