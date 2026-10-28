@@ -9,7 +9,13 @@
 
 🌐 **[English](README.md)**
 
-> **v0.3.0（2026-10-28）**：新增确定性 `jgd poc`、延迟 `hmz:` 反序列化闭链、JVM 批量动态探针和 MCP `jgd_poc`；五个开源产品已在隔离 Linux VM 中完成动态验证。
+> **v0.3.0（2026-10-28）**：集成、性能与正确性版本。JGD 现在可通过 CLI/JSON/SARIF、MCP 和 A2A 被其他代码审计 agent 调用；字节码索引与动态探测已提速；修复 CC3、延迟触发、增量覆盖等正确性问题。
+## v0.3.0 重点
+
+1. **可接入其他代码审计 agent**：CLI + JSON/SARIF、MCP stdio、A2A JSON-RPC/SSE；外部 agent 只传目标、授权、profile 和预算，JGD 内部完成桥发现、链配对、动态验证与 PoC 终止。
+2. **速度**：SQLite 字节码索引支持增量跳过；828-JAR 热查询约 0.038s，旧路径约 2.56s（约 67 倍）；动态探针按 classpath 批量复用 JVM。
+3. **正确性**：修复 CC3 `ChainedTransformer` 构造与 `getMethod -> invoke -> exec` 链、延迟 HashMap 触发、热索引覆盖统计、Spring Boot 嵌套 JAR 索引，以及 LLM 终态把关残留。
+
 ---
 
 ## 什么是 JGD？

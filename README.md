@@ -9,8 +9,52 @@
 
 🌐 **[中文版](README.zh-CN.md)**
 
-> **v0.3.0 (2026-10-28)**: deterministic `jgd poc`, deferred `hmz:` closure, JVM batch dynamic probes, MCP `jgd_poc`, and isolated-Linux-VM validation for five open-source products.
----
+> **v0.3.0 (2026-10-28)**: integration, performance, and correctness release.
+> JGD is now callable by other code-audit agents through JSON/SARIF, MCP, and
+> A2A; the bytecode index and dynamic probes are faster; and the deserialization
+> verifier no longer has LLM gatekeeping or build-time false positives.
+
+## v0.3.0 focus
+
+### 1. Agent-callable
+
+- CLI contract with machine-readable JSON, SARIF 2.1.0, Markdown, and stable
+  exit codes (`0/10/20/30/40`).
+- MCP stdio tools: `jgd_audit`, `jgd_poc`, `jgd_get_run`, `jgd_list_findings`,
+  `jgd_cancel`.
+- A2A JSON-RPC/SSE: agent card, `SendMessage`, `SendStreamingMessage`,
+  `GetTask`, `ListTasks`, `CancelTask`, optional Bearer auth.
+- The JGD mining loop stays inside JGD. External agents supply target,
+  authorization, profile, and budget; they consume findings/artifacts rather
+  than reimplementing deserialization analysis.
+- Deterministic verifier/terminator owns the verdict; LLM output is advisory
+  only and cannot mark a chain confirmed.
+
+### 2. Faster
+
+- SQLite bytecode-as-a-database index: 828-JAR warm query **0.038s** vs
+  **2.56s** legacy (**~67x**); cold build is incremental and skips unchanged
+  JARs.
+- Dynamic probes batch by target classpath, so a batch of bridges shares one
+  JVM (`DynamicProbe.probe_many`).
+- Probe classpaths use the whole target rather than only the bridge JAR;
+  Spring Boot `BOOT-INF/lib/*.jar` and `BOOT-INF/classes` are safely extracted
+  under the run directory.
+- Incremental index counters now report full target coverage on warm runs.
+
+### 3. Correctness fixes
+
+- CC3 `ChainedTransformer` now uses the real `Transformer[]` constructor and
+  the standard `getMethod -> invoke -> exec` sequence.
+- New `hmz:` HashMap carrier defers the bridge trigger to
+  `HashMap.readObject()`; build/serialization no longer count as deserialization
+  closure.
+- Removed LLM acceptance gatekeeping from conductor/PoC verdicts.
+- Nested fat JARs (Spring Boot `BOOT-INF/lib`) are indexed recursively.
+- Version gates that cannot be verified return `UNVERIFIED`, not
+  `APPLICABLE`.
+- Compression-ratio limits apply to `.class` entries only, avoiding false
+  rejects on legitimate resources.
 
 ## What is JGD?
 
@@ -37,9 +81,14 @@ All decisions are internalized: `JARs in → chains out`, zero intermediate user
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## 🆕 Discovered Novel Chains (20 total, all PoC FIRED)
+## Chain catalog (research history)
 
-### T1 — Novel Entry (ds confirmed: absent from all public corpora)
+> These are historical research candidates, not a claim about any current
+> target. Run `jgd audit` for target-specific evidence. A chain is only
+> `CHAIN_CONFIRMED` when the deterministic verifier observes
+> `fired_at_deser=true`.
+
+### T1 — Novel Entry (historical adversarial-audit result)
 
 | Chain | Bridge Class | Carrier | JDK | Status |
 |-------|-------------|---------|-----|--------|
@@ -206,6 +255,20 @@ python -m jgd serve a2a --host 127.0.0.1 --port 8080
 
 A2A sets Bearer auth when `--token` is provided. The full JGD mining loop
 remains inside JGD; the adapters only start/inspect tasks.
+
+### Integration contract
+
+| Entry point | Contract |
+|---|---|
+| CLI | `jgd audit`, `jgd poc`, `jgd index`, `jgd db`, `jgd doctor`, `jgd serve` |
+| JSON | `run.json` with schema version, coverage, findings, errors, target fingerprint |
+| SARIF | SARIF 2.1.0 for code-audit platforms |
+| MCP | stdio JSON-RPC tools for audit, PoC, status, findings, cancel |
+| A2A | agent card + JSON-RPC/SSE task lifecycle with optional Bearer auth |
+
+External agents should pass a target directory, policy/profile, and budget.
+They should not reimplement bridge discovery, chain pairing, dynamic
+verification, or PoC termination; those remain deterministic JGD internals.
 
 ### Legacy research CLI (still available)
 

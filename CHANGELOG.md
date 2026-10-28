@@ -2,20 +2,48 @@
 
 ## 0.3.0 — 2026-10-28
 
-- Added `jgd poc` and deterministic deserialization closure verification.
-- Added deferred `hmz:` HashMap carrier: payload builds without invoking the
-  bridge; `HashMap.readObject()` rehashes the key before closure is recorded.
-- Added automatic audit PoC closure for up to three `DESER_OK` dynamic
-  candidates when run with an explicit host sandbox + `--ecj`.
-- Added JVM batch probing (`DynamicProbe.probe_many`) and full target
-  classpaths, including safe extraction of Spring Boot `BOOT-INF/lib` and
-  `BOOT-INF/classes`.
-- Added MCP `jgd_poc` and A2A PoC request support.
-- Fixed CC3 `ChainedTransformer` construction/`getMethod -> invoke -> exec`.
-- Fixed incremental audit coverage totals when the bytecode index is warm.
-- Validated five open-source products in an isolated Linux VM; closed Hutool
-  DynaBean + Commons Collections 3.2.1 on JDK 17 with `fired_at_deser=true`.
+### Integration: callable by other code-audit agents
+
+- CLI/JSON/SARIF contract with stable exit codes for orchestration.
+- MCP stdio tools: `jgd_audit`, `jgd_poc`, `jgd_get_run`,
+  `jgd_list_findings`, `jgd_cancel`.
+- A2A card + JSON-RPC/SSE task lifecycle: `SendMessage`,
+  `SendStreamingMessage`, `GetTask`, `ListTasks`, `CancelTask`; optional
+  Bearer auth.
+- External agents provide target/authorization/profile/budget; JGD keeps
+  bridge discovery, chain pairing, dynamic verification, and PoC termination
+  internal.
+- Deterministic verifier owns the verdict; LLM output is advisory only.
+
+### Performance
+
+- SQLite bytecode-as-a-database index; 828-JAR warm query 0.038s vs 2.56s
+  legacy (~67x).
+- Incremental index builds skip unchanged JARs.
+- Dynamic probes batch by target classpath (`DynamicProbe.probe_many`).
+- Full target classpaths, including safe extraction of Spring Boot
+  `BOOT-INF/lib` and `BOOT-INF/classes`.
+- Warm-index coverage counters report the full target, not just newly built
+  JARs.
+
+### Correctness fixes
+
+- Fixed CC3 `ChainedTransformer` construction and the standard
+  `getMethod -> invoke -> exec` tail.
+- Added deferred `hmz:` HashMap carrier so only `readObject()` rehash counts
+  as deserialization closure.
+- Removed residual LLM acceptance gatekeeping from conductor/PoC verdicts.
+- Recursive nested fat-JAR indexing.
+- Unverifiable version gates now return `UNVERIFIED`, not `APPLICABLE`.
+- Compression-ratio limits apply only to `.class` entries.
+
+### Validation
+
+- Five open-source products were exercised in an isolated Linux VM; Hutool
+  DynaBean + Commons Collections 3.2.1 closed on JDK 17 with
+  `fired_at_deser=true`.
 - 67 tests pass, 1 skipped.
+
 
 
 历史轮次的全部修复与裁决, 按主题归组。编号保留可追溯性; 详细上下文见
