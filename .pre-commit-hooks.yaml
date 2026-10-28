@@ -1,0 +1,7 @@
+- id: jgd-deserialization
+  name: JGD deserialization gate
+  description: Scan a JAR directory for known chains and bridge candidates.
+  entry: sh ci/pre-commit
+  language: system
+  pass_filenames: false
+  always_run: true

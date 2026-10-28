@@ -1,0 +1,121 @@
+name: "JGD Deserialization Gate"
+description: "Run JGD static/dynamic deserialization analysis and fail the CI job on new findings."
+author: "lupingQAQ"
+
+branding:
+  icon: "shield"
+  color: "blue"
+
+inputs:
+  target:
+    description: "JAR directory to audit"
+    required: true
+  profile:
+    description: "known | standard | deep | full"
+    default: "standard"
+  fail-on:
+    description: "critical | high | medium | low | none"
+    default: "high"
+  baseline:
+    description: "Optional prior run.json/findings.json; fail only on new findings"
+    default: ""
+  format:
+    description: "Comma-separated output formats"
+    default: "json,sarif,md"
+  out:
+    description: "Run output directory"
+    default: "jgd-report"
+  offline:
+    description: "Disable network/LLM advisory"
+    default: "true"
+  dynamic:
+    description: "Run dynamic probes (requires an isolated runner/VM)"
+    default: "false"
+  sandbox:
+    description: "docker | wsl2 | host"
+    default: "docker"
+  unsafe-host:
+    description: "Allow host sandbox; only on a trusted isolated runner"
+    default: "false"
+  ecj:
+    description: "Optional ECJ jar for automatic PoC tails"
+    default: ""
+  python-version:
+    description: "Python version used to install JGD"
+    default: "3.12"
+
+outputs:
+  exit-code:
+    description: "JGD process exit code (0 pass, 10 policy gate, 20/30/40 errors)"
+    value: ${{ steps.audit.outputs.exit-code }}
+  sarif-file:
+    description: "Path to SARIF report"
+    value: ${{ steps.audit.outputs.sarif-file }}
+  gate-file:
+    description: "Path to deterministic gate decision JSON"
+    value: ${{ steps.audit.outputs.gate-file }}
+  run-dir:
+    description: "Directory containing run.json, findings.json, report.sarif, gate.json"
+    value: ${{ steps.audit.outputs.run-dir }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install JGD
+      shell: bash
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install "$GITHUB_ACTION_PATH"
+
+    - name: Run JGD gate
+      id: audit
+      shell: bash
+      env:
+        TARGET: ${{ inputs.target }}
+        PROFILE: ${{ inputs.profile }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        BASELINE: ${{ inputs.baseline }}
+        FORMAT: ${{ inputs.format }}
+        OUT: ${{ inputs.out }}
+        OFFLINE: ${{ inputs.offline }}
+        DYNAMIC: ${{ inputs.dynamic }}
+        SANDBOX: ${{ inputs.sandbox }}
+        UNSAFE_HOST: ${{ inputs.unsafe-host }}
+        ECJ: ${{ inputs.ecj }}
+      run: |
+        set +e
+        args=(audit --target "$TARGET" --profile "$PROFILE" --format "$FORMAT" --out "$OUT" --fail-on "$FAIL_ON")
+        if [ -n "$BASELINE" ]; then args+=(--baseline "$BASELINE"); fi
+        if [ "$OFFLINE" = "true" ]; then args+=(--offline --no-llm); fi
+        if [ "$DYNAMIC" = "true" ]; then
+          args+=(--dynamic --sandbox "$SANDBOX")
+          if [ "$UNSAFE_HOST" = "true" ]; then args+=(--unsafe-host); fi
+          if [ -n "$ECJ" ]; then args+=(--ecj "$ECJ"); fi
+        fi
+        jgd "${args[@]}"
+        rc=$?
+        echo "exit-code=$rc" >> "$GITHUB_OUTPUT"
+        echo "run-dir=$OUT" >> "$GITHUB_OUTPUT"
+        echo "sarif-file=$OUT/report.sarif" >> "$GITHUB_OUTPUT"
+        echo "gate-file=$OUT/gate.json" >> "$GITHUB_OUTPUT"
+        exit "$rc"
+
+    - name: Publish job summary
+      if: always()
+      shell: bash
+      env:
+        OUT: ${{ inputs.out }}
+      run: |
+        if [ -f "$OUT/report.md" ]; then
+          cat "$OUT/report.md" >> "$GITHUB_STEP_SUMMARY"
+        fi
+        if [ -f "$OUT/gate.json" ]; then
+          printf '\n```json\n' >> "$GITHUB_STEP_SUMMARY"
+          cat "$OUT/gate.json" >> "$GITHUB_STEP_SUMMARY"
+          printf '\n```\n' >> "$GITHUB_STEP_SUMMARY"
+        fi

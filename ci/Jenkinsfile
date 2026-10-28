@@ -1,0 +1,44 @@
+// Jenkins declarative pipeline example.
+// Requires the SARIF plugin for recordIssues; archiveArtifacts works without it.
+pipeline {
+  agent {
+    docker {
+      image 'python:3.12'
+      args '-u root'
+    }
+  }
+
+  environment {
+    JGD_TARGET = 'build/libs'
+    JGD_PROFILE = 'standard'
+    JGD_FAIL_ON = 'high'
+  }
+
+  stages {
+    stage('JGD deserialization gate') {
+      steps {
+        sh 'python -m pip install --upgrade pip'
+        sh 'python -m pip install .'
+        sh """
+          jgd audit \
+            --target "$JGD_TARGET" \
+            --profile "$JGD_PROFILE" \
+            --format json,sarif,md \
+            --out jgd-report \
+            --fail-on "$JGD_FAIL_ON" \
+            --offline --no-llm
+        """
+      }
+    }
+  }
+
+  post {
+    always {
+      archiveArtifacts artifacts: 'jgd-report/**', allowEmptyArchive: true
+      recordIssues(
+        enabledForFailure: true,
+        tools: [sarif(pattern: 'jgd-report/report.sarif')]
+      )
+    }
+  }
+}

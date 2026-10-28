@@ -1,0 +1,34 @@
+name: JGD Deserialization Gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  jgd:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: JGD static gate
+        id: jgd
+        uses: lupingQAQ/JGD@v0.4.0
+        with:
+          target: build/libs
+          profile: standard
+          fail-on: high
+          offline: "true"
+          # Optional: make legacy findings non-blocking and fail only on new ones.
+          # baseline: .jgd/baseline.json
+
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ steps.jgd.outputs.sarif-file }}
+          category: jgd-deserialization

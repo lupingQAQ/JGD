@@ -49,7 +49,7 @@ JVM probes, PoC execution, A2A/MCP, and multi-tenancy are covered by Plans 2–5
      findings (runId/timestamps excluded).
    - Test: `tests/test_cli_contract.py::test_audit_is_deterministic`.
 
-## Plan 2–4 additions (2026-10-26)
+## Runtime and CI/CD additions (2026-10-28)
 
 - **Dynamic probes** go through `jgd/security/sandbox.py`. `HostSandbox`
   requires `allow_host=True`; tests use it only with the bundled Apache
@@ -66,11 +66,20 @@ JVM probes, PoC execution, A2A/MCP, and multi-tenancy are covered by Plans 2–5
   `DESER_OK` candidates; only `fired_at_deser=true` becomes
   `CHAIN_CONFIRMED`. The old LLM acceptance gate is gone.
 
+- **CI/CD gates**: the GitHub Action runs with read-only contents and a
+  separate SARIF upload permission; the gate uses stable exit codes and a
+  deterministic `gate.json`. Optional `--baseline` turns legacy findings
+  into non-blocking context while retaining them in the report.
+- **Nexus webhook**: token and/or HMAC authentication is mandatory;
+  downloads are restricted to `--nexus-base-url` (scheme/host/path prefix),
+  local paths to `--local-root`, and only `.jar` artifacts with a 512 MB
+  limit are accepted. The receiver delegates to the normal JGD policy path;
+  it never executes an arbitrary command from the event.
+
 ## Out of scope for Plan 1–4
 
 - Full commercial-product validation without an authorized corpus.
-- Full sandboxed PoC chain closure; the legacy `poc_gen` remains research
-  code with host paths and is not called by the hardened CLI.
+- Full commercial-product validation without an authorized corpus.
 - Multi-tenant A2A authorization beyond the optional shared Bearer token.
 - LLM prompt injection hardening beyond the advisory-only boundary.
 

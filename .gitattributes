@@ -1,0 +1,3 @@
+action.yml text eol=lf
+ci/* text eol=lf
+.pre-commit-hooks.yaml text eol=lf

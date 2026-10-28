@@ -1,0 +1,32 @@
+# Copy into .gitlab-ci.yml and set JGD_TARGET (default: build/libs).
+stages:
+  - security
+
+jgd-deserialization:
+  stage: security
+  image: python:3.12
+  variables:
+    JGD_TARGET: build/libs
+    JGD_PROFILE: standard
+    JGD_FAIL_ON: high
+  before_script:
+    - python -m pip install --upgrade pip
+    - python -m pip install .
+  script:
+    - >
+      jgd audit
+      --target "$JGD_TARGET"
+      --profile "$JGD_PROFILE"
+      --format json,sarif,md
+      --out jgd-report
+      --fail-on "$JGD_FAIL_ON"
+      --offline --no-llm
+  artifacts:
+    when: always
+    paths:
+      - jgd-report/
+    reports:
+      sarif: jgd-report/report.sarif
+    expire_in: 30 days
+  # Optional baseline: put a prior run.json in the repo and add:
+  #   --baseline .jgd/baseline.json

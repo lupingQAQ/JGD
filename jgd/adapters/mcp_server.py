@@ -12,7 +12,7 @@ from pathlib import Path
 
 from jgd.service import JgdService
 
-TOOL_VERSION = "0.3.0"
+TOOL_VERSION = "0.4.0"
 
 TOOLS = [
     {

@@ -1,0 +1,22 @@
+#!/usr/bin/env sh
+# Lightweight local gate for pre-commit. Set JGD_TARGET to the directory
+# containing the JARs you want to scan (default: build/libs).
+set -eu
+
+TARGET="${JGD_TARGET:-build/libs}"
+PROFILE="${JGD_PROFILE:-known}"
+FAIL_ON="${JGD_FAIL_ON:-high}"
+
+if [ ! -d "$TARGET" ]; then
+  echo "jgd pre-commit: target directory not found: $TARGET" >&2
+  echo "set JGD_TARGET or skip this hook" >&2
+  exit 1
+fi
+
+exec jgd audit \
+  --target "$TARGET" \
+  --profile "$PROFILE" \
+  --format json,md \
+  --out .jgd/pre-commit \
+  --fail-on "$FAIL_ON" \
+  --offline --no-llm --no-poc

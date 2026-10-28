@@ -1,5 +1,28 @@
 # Changelog（设计裁决编号史 R6-R52）
 
+## 0.4.0 — 2026-10-28
+
+### CI/CD security left shift
+
+- Added a composite GitHub Action (`action.yml`) with SARIF output, baseline
+  diffing, severity gates, job summary, and stable exit codes.
+- Added GitLab CI, Jenkins, and pre-commit integration templates under `ci/`.
+- Added `jgd serve webhook` for Nexus/CI repository events:
+  token or HMAC authentication, Nexus URL allowlist, local-root confinement,
+  `.jar`-only ingestion, and size limits.
+- Added `gate.json` to every audit run with blocking IDs and new-finding
+  counts.
+- Added `--baseline prior-run.json` to audit: existing findings remain
+  reported but only new findings can fail the gate.
+- Added deterministic gate tests and webhook auth/allowlist tests.
+- Test suite: 78 passed, 5 skipped (JDK-dependent tests skipped in this
+  environment).
+
+### Compatibility
+
+- No schema removal; existing CLI/MCP/A2A/JSON/SARIF consumers keep working.
+- Previous 0.3.0 integration/performance/correctness changes remain intact.
+
 ## 0.3.0 — 2026-10-28
 
 ### Integration: callable by other code-audit agents

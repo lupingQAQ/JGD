@@ -14,6 +14,7 @@ import uuid
 from dataclasses import replace
 from pathlib import Path
 
+from jgd import ci
 from jgd.adapters.sarif import to_sarif
 from jgd.config import Budget, JgdConfig, Policy
 from jgd.contracts.models import Finding, RunResult
@@ -28,8 +29,7 @@ from jgd.security.policy import PolicyEngine, Scope
 from jgd.security.sandbox import SandboxLimits
 from jgd.verification import build_chain_db
 
-TOOL_VERSION = "0.3.0"
-_SEVERITY = {"critical": 4, "high": 3, "medium": 2, "low": 1, "none": 0}
+TOOL_VERSION = "0.4.0"
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -57,6 +57,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     audit.add_argument("--jobs", type=int, default=8)
     audit.add_argument("--ecj", default=None, help="ECJ jar for automatic PoC tails")
+    audit.add_argument(
+        "--baseline",
+        default=None,
+        help="prior run.json/findings.json; fail only on new findings",
+    )
 
     index = sub.add_parser("index", help="bytecode index operations")
     index_sub = index.add_subparsers(dest="index_command", required=True)
@@ -80,6 +85,42 @@ def _parser() -> argparse.ArgumentParser:
     a2a.add_argument("--port", type=int, default=8080)
     a2a.add_argument("--home", default=None)
     a2a.add_argument("--token", default=None)
+
+    webhook = serve_sub.add_parser("webhook", help="Nexus/CI webhook receiver")
+    webhook.add_argument("--host", default="127.0.0.1")
+    webhook.add_argument("--port", type=int, default=8090)
+    webhook.add_argument("--home", default=None)
+    webhook.add_argument("--work-dir", default=None)
+    webhook.add_argument("--token", default=None, help="Bearer token")
+    webhook.add_argument("--secret", default=None, help="HMAC-SHA256 webhook secret")
+    webhook.add_argument(
+        "--nexus-base-url",
+        default=None,
+        help="Only download artifact URLs under this Nexus URL",
+    )
+    webhook.add_argument(
+        "--nexus-token",
+        default=None,
+        help="Optional Bearer token for downloading private Nexus artifacts",
+    )
+    webhook.add_argument(
+        "--local-root",
+        default=None,
+        help="Allow local artifact paths under this root",
+    )
+    webhook.add_argument(
+        "--profile", choices=["known", "standard", "deep", "full"], default="standard"
+    )
+    webhook.add_argument(
+        "--fail-on",
+        choices=["critical", "high", "medium", "low", "none"],
+        default="high",
+    )
+    webhook.add_argument("--dynamic", action="store_true")
+    webhook.add_argument("--sandbox", choices=["docker", "wsl2", "host"], default="docker")
+    webhook.add_argument("--unsafe-host", action="store_true")
+    webhook.add_argument("--wait", action="store_true", help="Wait for audit before responding")
+    webhook.add_argument("--wait-timeout", type=float, default=600.0)
 
     poc = sub.add_parser("poc", help="build and verify one deserialization chain")
     poc.add_argument("--target", required=True, help="target JAR directory")
@@ -422,6 +463,18 @@ def _audit(args: argparse.Namespace) -> int:
         else []
     )
     findings += dynamic + poc_findings
+    baseline_keys = None
+    if args.baseline:
+        try:
+            baseline_keys = ci.load_baseline(args.baseline)
+        except Exception as exc:
+            print(f"jgd: invalid baseline: {exc}", file=sys.stderr)
+            return 30
+    gate = ci.evaluate(
+        findings,
+        baseline=baseline_keys,
+        fail_on=args.fail_on,
+    )
     # Fingerprint the target by its JAR content hashes, independent of runId/time.
     fingerprint = (
         "sha256:" + hashlib.sha256("".join(sorted(jar_hashes)).encode()).hexdigest()
@@ -445,13 +498,21 @@ def _audit(args: argparse.Namespace) -> int:
             "profile": config.profile,
             "db_status": db_status,
             "db_chains": db_chains,
+            "gate": {
+                "failOn": gate["failOn"],
+                "baselineApplied": gate["baselineApplied"],
+                "baselineFindings": gate["baselineFindings"],
+                "considered": gate["considered"],
+                "blocking": gate["blocking"],
+                "failed": gate["failed"],
+            },
         },
         errors=errors,
     )
     _write_report(out, result, formats, findings)
+    ci.write_gate(out / "gate.json", gate)
 
-    threshold = _SEVERITY[args.fail_on]
-    failed = any(_SEVERITY.get(f.severity, 0) >= threshold for f in findings) if threshold else False
+    failed = gate["failed"]
     print(
         json.dumps(
             {
@@ -461,6 +522,7 @@ def _audit(args: argparse.Namespace) -> int:
                 "classes": totals["classes"],
                 "findings": len(findings),
                 "bridges": len(bridges),
+                "gate": {"failed": gate["failed"], "blocking": gate["blocking"]},
             },
             ensure_ascii=True,
         )
@@ -640,6 +702,31 @@ def main(argv: list[str] | None = None) -> int:
             home=Path(args.home) if args.home else None,
             token=args.token,
         )
+    if args.command == "serve" and args.serve_command == "webhook":
+        from jgd.adapters.webhook_server import serve as webhook_serve
+
+        try:
+            return webhook_serve(
+                host=args.host,
+                port=args.port,
+                home=Path(args.home) if args.home else None,
+                work_dir=Path(args.work_dir) if args.work_dir else None,
+                token=args.token,
+                secret=args.secret,
+                nexus_base_url=args.nexus_base_url,
+                nexus_token=args.nexus_token,
+                local_root=Path(args.local_root) if args.local_root else None,
+                profile=args.profile,
+                fail_on=args.fail_on,
+                dynamic=args.dynamic,
+                sandbox=args.sandbox,
+                allow_host=args.unsafe_host,
+                wait=args.wait,
+                wait_timeout=args.wait_timeout,
+            )
+        except Exception as exc:
+            print(f"jgd: webhook failed: {exc}", file=sys.stderr)
+            return 30
     if args.command == "doctor":
         print(
             json.dumps(

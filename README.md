@@ -2,17 +2,92 @@
 
 ### JavaGadgetDigger — Solving the Last Mile of Deserialization Vulnerability Discovery
 
-[![Version](https://img.shields.io/badge/version-0.3.0-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.0-blue)](CHANGELOG.md)
 [![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Java](https://img.shields.io/badge/Java-11%20%7C%2017-orange?logo=java&logoColor=white)](https://openjdk.org)
 
 🌐 **[中文版](README.zh-CN.md)**
 
+> **v0.4.0 (2026-10-28)**: security-left-shift release. JGD can now be inserted
+> into GitHub Actions, GitLab CI, Jenkins, pre-commit, and Nexus repository
+> events, with SARIF, baseline diffing, and deterministic fail gates.
+>
 > **v0.3.0 (2026-10-28)**: integration, performance, and correctness release.
 > JGD is now callable by other code-audit agents through JSON/SARIF, MCP, and
 > A2A; the bytecode index and dynamic probes are faster; and the deserialization
 > verifier no longer has LLM gatekeeping or build-time false positives.
+
+## v0.4.0 focus: CI/CD gates
+
+### GitHub Actions
+
+Root `action.yml` is a composite action:
+
+- installs JGD on the runner;
+- runs `jgd audit` with JSON/SARIF/Markdown;
+- writes `gate.json` and optional `run.json`;
+- supports `baseline`, `fail-on`, dynamic probes, and optional ECJ;
+- exposes `exit-code`, `sarif-file`, `gate-file`, and `run-dir`;
+- publishes a job summary and fails the job on policy findings.
+
+Use it directly:
+
+```yaml
+- uses: lupingQAQ/JGD@v0.4.0
+  with:
+    target: build/libs
+    fail-on: high
+    offline: "true"
+- uses: github/codeql-action/upload-sarif@v3
+  with:
+    sarif_file: jgd-report/report.sarif
+```
+
+### Nexus webhook
+
+`jgd serve webhook` receives Nexus component/asset events, authenticates with
+Bearer token and/or HMAC-SHA256, and hands `.jar` artifacts to the normal JGD
+service:
+
+```bash
+jgd serve webhook \
+  --host 0.0.0.0 --port 8090 \
+  --token "$JGD_WEBHOOK_TOKEN" \
+  --secret "$JGD_WEBHOOK_SECRET" \
+  --nexus-base-url https://nexus.example.com/repository/maven-releases \
+  --profile standard --fail-on high
+```
+
+The receiver only downloads URLs under the configured Nexus base URL, only
+accepts `.jar` files, enforces a 512 MB limit, and rejects local paths outside
+`--local-root`. Details: [`ci/README.md`](ci/README.md).
+
+### Baseline-gated pull requests
+
+First run establishes a baseline:
+
+```bash
+jgd audit --target build/libs --profile standard --out .jgd/baseline
+```
+
+Later PR runs fail only on new findings:
+
+```bash
+jgd audit --target build/libs --profile standard \
+  --baseline .jgd/baseline/run.json --fail-on high --out jgd-report
+```
+
+Every run writes `gate.json` with `blockingIds`, `new`, `considered`, and
+`failed` so CI can render the decision without parsing prose.
+
+### Other insertion points
+
+- GitLab CI: [`ci/gitlab-ci.yml`](ci/gitlab-ci.yml)
+- Jenkins: [`ci/Jenkinsfile`](ci/Jenkinsfile)
+- pre-commit: [`ci/pre-commit`](ci/pre-commit) and
+  [`.pre-commit-hooks.yaml`](.pre-commit-hooks.yaml)
+- generic webhook / service: `jgd serve webhook`, MCP, A2A
 
 ## v0.3.0 focus
 

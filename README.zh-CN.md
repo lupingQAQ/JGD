@@ -2,14 +2,25 @@
 
 ### JavaGadgetDigger — 解决反序列化漏洞挖掘的最后一公里
 
-[![Version](https://img.shields.io/badge/version-0.3.0-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.0-blue)](CHANGELOG.md)
 [![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Java](https://img.shields.io/badge/Java-11%20%7C%2017-orange?logo=java&logoColor=white)](https://openjdk.org)
 
 🌐 **[English](README.md)**
 
+> **v0.4.0（2026-10-28）**：安全左移版本。JGD 现在可插入 GitHub Actions、GitLab CI、Jenkins、pre-commit 和 Nexus 仓库事件，提供 SARIF、baseline 差异和确定性失败卡点。
+>
 > **v0.3.0（2026-10-28）**：集成、性能与正确性版本。JGD 现在可通过 CLI/JSON/SARIF、MCP 和 A2A 被其他代码审计 agent 调用；字节码索引与动态探测已提速；修复 CC3、延迟触发、增量覆盖等正确性问题。
+
+## v0.4.0 重点：CI/CD 卡点
+
+- **GitHub Actions**：根目录 `action.yml` 复合 Action，输出 SARIF、`gate.json`、稳定退出码和 job summary。
+- **Nexus webhook**：`jgd serve webhook`，Bearer Token / HMAC-SHA256、Nexus URL 白名单、仅接受 `.jar`、512MB 上限。
+- **其他入口**：GitLab CI、Jenkins、pre-commit；模板位于 `ci/`。
+- **Baseline 门禁**：`--baseline prior-run.json` 只让新发现阻塞，历史问题仍保留在报告中。
+- **保留 0.3.0 记录**：此前的 agent 集成、性能优化与正确性修复仍在下方保留。
+
 ## v0.3.0 重点
 
 1. **可接入其他代码审计 agent**：CLI + JSON/SARIF、MCP stdio、A2A JSON-RPC/SSE；外部 agent 只传目标、授权、profile 和预算，JGD 内部完成桥发现、链配对、动态验证与 PoC 终止。
@@ -40,7 +51,9 @@
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## 🆕 已发现新链（共 20 条，全部 PoC 点火）
+## 链目录（历史研究）
+
+> 这些是历史研究候选，不代表当前任何目标的结论；只有 `fired_at_deser=true` 才由确定性 verifier 记为 `CHAIN_CONFIRMED`。
 
 ### T1 — 新入口（ds 确认：所有公开语料中无记录）
 

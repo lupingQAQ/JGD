@@ -53,6 +53,7 @@ class JgdService:
         sandbox: str = "docker",
         allow_host: bool = False,
         ecj: Path | str | None = None,
+        fail_on: str = "high",
     ) -> str:
         target = Path(target).resolve()
         if not target.is_dir():
@@ -73,6 +74,8 @@ class JgdService:
             "json,sarif,md",
             "--out",
             str(run_dir),
+            "--fail-on",
+            fail_on,
         ]
         if dynamic:
             cmd += ["--dynamic", "--sandbox", sandbox]

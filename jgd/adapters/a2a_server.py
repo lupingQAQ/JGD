@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 
 from jgd.service import JgdService
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 _RUN_RE = re.compile(r"^[0-9A-Za-z._-]+$")
 _ART_RE = re.compile(r"^[0-9A-Za-z._-]+$")
 
