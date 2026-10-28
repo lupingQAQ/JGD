@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-"""Thin wrapper — real implementation lives in jgd.cli (kept for compatibility)."""
+"""Thin compatibility wrapper — real implementation lives in jgd.cli."""
+import sys
+
 from jgd.cli import main
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(["audit", *sys.argv[1:]]))

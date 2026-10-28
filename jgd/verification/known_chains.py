@@ -21,6 +21,24 @@ from jgd.infra import matrix_agent as ma, scope
 
 DB_PATH = scope.DATA / "known_chains.db"
 
+
+def db_status(db_path: Path | str | None = None) -> str:
+    """Return loaded/missing for a known-chain DB; never silently claim coverage."""
+    path = Path(db_path) if db_path is not None else DB_PATH
+    if not path.exists():
+        return "missing"
+    try:
+        import sqlite3
+
+        conn = sqlite3.connect(str(path))
+        try:
+            count = conn.execute("SELECT COUNT(*) FROM chains").fetchone()[0]
+        finally:
+            conn.close()
+        return "loaded" if count else "missing"
+    except Exception:
+        return "missing"
+
 # 硬编码兜底(数据库不可用时); 数据库优先(155+ 条含全元数据)
 KNOWN_CHAINS_FALLBACK = [
     {"name": "CC1-CC7 (commons-collections LazyMap/ChainedTransformer)",
@@ -190,7 +208,7 @@ def version_verdict(jars: list[str], gates: list[tuple]) -> str:
                 break
     if per_jar:
         return " | ".join(per_jar)
-    return "APPLICABLE: 无版本门命中(默认按可用, 建议动态复验)"
+    return "UNVERIFIED: 无版本门命中(需动态/人工复核)"
 
 
 def audit(corpus: Path) -> list[dict]:

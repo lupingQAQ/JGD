@@ -16,8 +16,15 @@ import sqlite3
 import sys
 from pathlib import Path
 
-sys.stdout.reconfigure(encoding='utf-8')
-DB_PATH = Path('/mnt/f/opc_file/chainforge_x_v0/data/known_chains.db')
+from jgd import PROJECT_ROOT
+
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
+DEFAULT_DB_PATH = PROJECT_ROOT / "data" / "known_chains.db"
+DB_PATH = DEFAULT_DB_PATH  # compatibility alias
 
 # ============================================================
 # 数据库 Schema
@@ -525,12 +532,14 @@ def chains():
     return C
 
 
-def build():
+def build(db_path: Path | str | None = None, quiet: bool = False) -> Path:
     """构建 SQLite 数据库。"""
-    if DB_PATH.exists():
-        DB_PATH.unlink()
+    path = Path(db_path) if db_path is not None else DEFAULT_DB_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        path.unlink()
 
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = sqlite3.connect(str(path))
     conn.executescript(SCHEMA)
 
     all_chains = chains()
@@ -560,12 +569,14 @@ def build():
     ).fetchall()
     conn.close()
 
-    print(f'Database: {DB_PATH}')
-    print(f'Chains: {count}')
-    print(f'Gates: {gates_count}')
-    print(f'\nBy family:')
-    for fam, n in families:
-        print(f'  {fam:<15} {n}')
+    if not quiet:
+        print(f'Database: {path}')
+        print(f'Chains: {count}')
+        print(f'Gates: {gates_count}')
+        print(f'\nBy family:')
+        for fam, n in families:
+            print(f'  {fam:<15} {n}')
+    return path
 
 
 if __name__ == '__main__':

@@ -1,5 +1,23 @@
 # Changelog（设计裁决编号史 R6-R52）
 
+## 0.3.0 — 2026-10-28
+
+- Added `jgd poc` and deterministic deserialization closure verification.
+- Added deferred `hmz:` HashMap carrier: payload builds without invoking the
+  bridge; `HashMap.readObject()` rehashes the key before closure is recorded.
+- Added automatic audit PoC closure for up to three `DESER_OK` dynamic
+  candidates when run with an explicit host sandbox + `--ecj`.
+- Added JVM batch probing (`DynamicProbe.probe_many`) and full target
+  classpaths, including safe extraction of Spring Boot `BOOT-INF/lib` and
+  `BOOT-INF/classes`.
+- Added MCP `jgd_poc` and A2A PoC request support.
+- Fixed CC3 `ChainedTransformer` construction/`getMethod -> invoke -> exec`.
+- Fixed incremental audit coverage totals when the bytecode index is warm.
+- Validated five open-source products in an isolated Linux VM; closed Hutool
+  DynaBean + Commons Collections 3.2.1 on JDK 17 with `fired_at_deser=true`.
+- 67 tests pass, 1 skipped.
+
+
 历史轮次的全部修复与裁决, 按主题归组。编号保留可追溯性; 详细上下文见
 git-less 档案 `archive/docs/` 与各模块内的行级注释。
 

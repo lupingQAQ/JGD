@@ -14,6 +14,17 @@ jgd_novel_chains.*.json
 jgd_chain_audit.*.json
 _*.py
 !jgd/__main__.py
+!**/__init__.py
 _*.json
 verify_state.*.json
 _verify/
+
+# local developer workspace (not part of the product)
+.venv/
+.superpowers/
+runs/
+bench/*.json
+build/
+*.egg-info/
+.tools/
+.corpora/

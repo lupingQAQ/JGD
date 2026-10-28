@@ -4,14 +4,28 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jgd"
-version = "0.1.0"
+version = "0.3.0"
 description = "JavaGadgetDigger — autonomous Java deserialization gadget-chain mining"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { text = "MIT" }
+
+[project.optional-dependencies]
+test = ["pytest>=8", "jsonschema>=4", "tomli; python_version < '3.11'"]
 
 [project.scripts]
 jgd = "jgd.cli:main"
 jgd-tui = "jgd.tui:main"
 
 [tool.setuptools]
-packages = ["jgd", "jgd.mining", "jgd.verification", "jgd.poc", "jgd.infra"]
+packages = [
+  "jgd",
+  "jgd.mining",
+  "jgd.verification",
+  "jgd.poc",
+  "jgd.infra",
+  "jgd.contracts",
+  "jgd.index",
+  "jgd.engine",
+  "jgd.security",
+  "jgd.adapters",
+]

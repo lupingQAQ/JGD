@@ -1,0 +1,39 @@
+{
+  "product": "Hutool 5.8.48 + commons-collections 3.2.1",
+  "mode": "audit + dynamic + automatic PoC",
+  "duration_s": 43.1,
+  "target_classpath": [
+    "hutool-all-5.8.48.jar",
+    "commons-collections-3.2.1.jar"
+  ],
+  "coverage": {
+    "jars": 2,
+    "classes": 2121,
+    "methods": 20902,
+    "bridges": 253,
+    "dynamic": 10,
+    "poc": 2,
+    "profile": "standard",
+    "db_status": "built",
+    "db_chains": 115
+  },
+  "findings": 299,
+  "confirmed_findings": [
+    {
+      "id": "JGD-P0001",
+      "class": "cn/hutool/core/bean/DynaBean",
+      "verdict": "CHAIN_CONFIRMED",
+      "fired_at_deser": true,
+      "payload": "payload_cc3.ser"
+    },
+    {
+      "id": "JGD-P0002",
+      "class": "cn/hutool/core/bean/DynaBean",
+      "verdict": "CHAIN_CONFIRMED",
+      "fired_at_deser": true,
+      "payload": "payload_cc3.ser"
+    }
+  ],
+  "note": "Automatic audit PoC path: dynamic DESER_OK -> deterministic hmz: closure -> CHAIN_CONFIRMED only when fired_at_deser=true.",
+  "scope_caveat": "Hutool standalone has no Commons Collections; this is a product bridge + common tail classpath, not a single-JAR zero-day."
+}

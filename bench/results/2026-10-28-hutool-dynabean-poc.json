@@ -1,0 +1,19 @@
+{
+  "product": "Hutool 5.8.48 + commons-collections 3.2.1",
+  "chain": "Hutool DynaBean -> CC3 TiedMapEntry/LazyMap -> TemplatesImpl",
+  "status": "RCE_DEMO_FIRED",
+  "fired_at_build": false,
+  "fired_at_deser": true,
+  "bridge": "cn.hutool.core.bean.DynaBean",
+  "trigger": "hash",
+  "tail_candidates": [
+    "commons-collections"
+  ],
+  "target_classpath": "hutool-all-5.8.48.jar + commons-collections-3.2.1.jar",
+  "carrier": "HashMap with reflective table insertion (no hashCode at build/serialization)",
+  "sandbox": "VirtualBox Ubuntu 22.04 VM, JDK 17",
+  "payload_sha256": "d3423c076259e9349f4326ffa173b1c4e8353c30a0582b43f73afa5e6980a515",
+  "payload_bytes": 1271,
+  "benign_effect": "TemplatesImpl static initializer writes a marker file only",
+  "caveat": "Hutool alone does not bundle commons-collections; this is a product bridge + common tail classpath, not a single-JAR zero-day."
+}

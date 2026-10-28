@@ -59,13 +59,8 @@ def _slots(desc: str) -> int:
     return n
 
 
-def field_bridges(jar_path: str, class_name: str) -> list[dict]:
-    """Genuine `this.<field>` -> `<field>.method()` bridges inside trigger methods.
-
-    Conservative: a call whose receiver cannot be resolved to a field of *this*
-    is dropped rather than attributed optimistically.
-    """
-    cf = disasm.load(jar_path, class_name)
+def field_bridges_from_classfile(cf) -> list[dict]:
+    """Genuine this.<field> -> <field>.method() bridges for a parsed ClassFile."""
     if not cf:
         return []
     field_desc = {f["name"]: f["desc"] for f in cf.fields}
@@ -227,6 +222,10 @@ def field_bridges(jar_path: str, class_name: str) -> list[dict]:
             # everything else (returns, goto, iinc, conversions, monitors,
             # athrow, array ops) does not affect our receiver tracking.
     return results
+
+
+def field_bridges(jar_path: str, class_name: str) -> list[dict]:
+    return field_bridges_from_classfile(disasm.load(jar_path, class_name))
 
 
 def _selftest():

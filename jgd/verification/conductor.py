@@ -102,11 +102,6 @@ class Conductor:
             return self.state["verdict"]
 
         rounds_hist = self.state.get("rounds", [])
-        if self.state.get("acceptance_blocked"):
-            self.max_rounds = len(rounds_hist) + 2
-            print(f"[conductor] ds 拒收上一判定, 延长轮次至 {self.max_rounds}",
-                  flush=True)
-            self.state["acceptance_blocked"] = False
         prev_signal = rounds_hist[-1].get("signal") if rounds_hist else None
         no_growth_streak = 0
         rnd = len(rounds_hist)
@@ -188,87 +183,11 @@ class Conductor:
         v = cc.get("verdict") or "ROUNDS_EXHAUSTED"
         return self._finish(v)
 
-    def _ds_acceptance(self, verdict: str) -> dict:
-        """终局判定 + 本轮 agent 修改必须经 ds 验收。
-        用户既定规则: 实现后和 dsh 交叉验证 — 未经 ds 验收的结论不出 agent。"""
-        from jgd.infra import llm
-        cc = read_json(scope.DATA / "jgd_chain_state.json", {}) or {}
-        pb = (cc.get("coverage") or {}).get("per_bridge") or {}
-        sum_total = sum(v.get("pairs_total", 0) for v in pb.values())
-        sum_tried = sum(v.get("pairs_tried", 0) for v in pb.values())
-        mods = [
-            " ensure_graph: 图指纹校验, 语料不符实时重建 (990K节点/2.3M边)",
-            " jgd_chain_audit 合并+翻供阈值: ds 非确定性下单轮翻供不推翻 CONFIRM",
-            " sink 种子扩展: 14条groovy → 430个方法节点(经典RCE/JNDI/字节码族)",
-            "参数桥检测: 字段作为参数流入静态助手(MurmurHash.update等)也算桥, "
-            "修复 antlr4 Pair 漏检",
-            " verdict 残留清除: 修复  零尝试事故(残留 NO_CHAIN 使 pair 循环首桥即 break)",
-            " CHA 分派边: (接口,方法)→(实现,方法), 反向可达不再断在多态边界",
-            " hop2 可达性判定: 标记物唯一可达路径论证; 写侧触发模板清除; "
-            "18 对误判修正且读侧复验全过, 36/36 接收者无自定义 readObject",
-            "接收者序列化钩子审计(假阳性风险标注)",
-            "桥池放开: 全部 INTERESTING 参与配对(含未审计)",
-            "值可达性: String 字段注入 canary, 参数流异常回显=VALUE_FLOW 证据; "
-            "DEPTH2 接收者进化为下一轮桥(链延伸至深度3+)",
-        ]
-        prompt = (
-            "你是 JGD 项目的验收审计员(dsh)。主控 agent 即将输出终局判定。\n"
-            "验收标准(域内语义, ): 本判定只主张【声明域内】的完成 —\n"
-            "  (a) 配对覆盖 pairs_tried==pairs_total 且逐桥账本一致\n"
-            "  (b) 空池桥=枚举已执行结果为空(CHA+≤3跳静态边界, 显式声明)\n"
-            "  (c) 环境阻塞对显式降级(env_blocked), 不计入已验证\n"
-            "  (d) 域边界声明: 非CHA可见接收者(反射/ServiceLoader/动态注册)与\n"
-            "      非插桩观测(标记物4方法+签名匹配)是本域的已知边界, 不主张域外无链\n"
-            "请验收: 1) 域内完成主张是否被账本支撑 2) 修改清单是否引入新缺陷\n"
-            "3) 域边界声明是否诚实完整 4) 挖掘产物(270 DEPTH2+T1入口新链)记录是否可靠。\n"
-            "输出 JSON: {\"accepted\": true/false, \"blockers\": [\"...\"], "
-            "\"probe_blind_spots\": [\"...\"], \"note\": \"...\"}\n\n"
-            + json.dumps({"verdict": verdict,
-                          "coverage": cc.get("coverage", {}),
-                          "per_bridge_ledger": {
-                              "sum_pairs_total": sum_total,
-                              "sum_pairs_tried": sum_tried,
-                              "bridge_count": len(pb),
-                              "consistency": (sum_total ==
-                                              (cc.get("coverage", {})
-                                               .get("totals", {})
-                                               .get("pairs_total"))),
-                              "full": {k: pb[k] for k in list(pb)[:200]}},
-                          "exhaustion_statements_sample":
-                              (cc.get("exhaustion_statements") or [])[:5],
-                          "env_blocked_pairs": sum(
-                              1 for r in (cc.get("pair_results") or [])
-                              if r.get("tax") == "env_blocked_dep_missing"),
-                          "evidence_count": len(cc.get("evidence", [])),
-                          "modifications": mods,
-                          "dynamic_probe_model": (
-                              "4层: DynV实例化+BAVE回环 / PV注入+标记物 / CV链PoC(JDK11) / "
-                              "CC全链对(hop2标记物+sink异常签名)。"
-                              "非JVM插桩: 无javaagent/ClassFileTransformer, "
-                              "目标类字节码未修改, 观测仅限标记物的toString/hashCode/"
-                              "equals/invoke + 输出签名匹配")},
-                         ensure_ascii=False, indent=1))
-        resp = llm.ask("ds", "你是严谨的安全研究验收审计员, 只依据给定材料判断。",
-                       prompt, temperature=0.1, max_tokens=1600)
-        parsed = llm.extract_json(resp.get("content") or "")
-        out = parsed if isinstance(parsed, dict) else {"accepted": None,
-                                                       "note": "UNPARSEABLE"}
-        out["ds_ok"] = resp.get("ok", False)
-        self.state["ds_acceptance"] = out
-        return out
-
     def _finish(self, verdict: str) -> str:
-        acceptance = self._ds_acceptance(verdict)
-        if acceptance.get("accepted") is True:
-            self.state["verdict"] = verdict
-            self.state["pending_verdict"] = None
-            self.state["acceptance_blocked"] = False
-        else:
-            # ds 拒收 → 判定不算数, 挖掘继续 (延长轮次由 run() 开头处理)
-            self.state["verdict"] = None
-            self.state["pending_verdict"] = verdict
-            self.state["acceptance_blocked"] = True
-            verdict = f"ACCEPTANCE_BLOCKED:{verdict}"
+        """Record the deterministic terminal verdict; LLM gatekeeping is removed."""
+        self.state["verdict"] = verdict
+        self.state["pending_verdict"] = None
+        self.state["gate"] = {"mode": "deterministic", "llm_gate": "removed"}
         self.save()
         cc = read_json(scope.DATA / "jgd_chain_state.json", {}) or {}
         cov = cc.get("coverage", {})
@@ -276,9 +195,7 @@ class Conductor:
             "# Conductor 终局报告",
             "",
             f"## 判定: **{verdict}**",
-            f"- dsh 验收: accepted={acceptance.get('accepted')} "
-            f"blockers={acceptance.get('blockers')}",
-            f"- 探针盲区(dsh): {acceptance.get('probe_blind_spots')}",
+            "- LLM 把关: removed (deterministic verifier/terminator owns the verdict)",
             f"- 轮次记录: {json.dumps(self.state.get('rounds', [])[-3:], ensure_ascii=False)}",
             f"- 覆盖: {json.dumps(cov.get('totals', {}), ensure_ascii=False)}; "
             f"空池桥(显式穷尽) {len(cov.get('empty_pool_bridges', []))} 个",

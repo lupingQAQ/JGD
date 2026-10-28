@@ -21,8 +21,13 @@ gadget 链，先于攻击者完成修复评估。
 
 对本工具自身的安全issue（如注入、路径穿越）：开 private security advisory。
 
-## 工具内置防护
+## 工具内置防护（2026-10 hardening）
 
-- PoC payload 静态块仅写 `/tmp` 标记文件 + stdout，无破坏动作
-- 所有 LLM 审计结论需双模型对抗确认（发现者≠验证者）
-- 终局判定经 dsh 验收（声明≠证据标准）
+- Plan 1 静态扫描器不执行目标代码：`SafeJar` 只读校验，`bcdisasm` 只解析字节码。
+- 动态探针通过 `jgd.security.sandbox`；`HostSandbox` 需要显式 `--unsafe-host`，仅用于可信 lab 语料；生产使用 Docker/WSL2。WSL 功能已启用但需要重启后生效。
+- A2A 支持 Bearer token（`--token`）；MCP stdio 只继承本地信任；任务只启动 JGD run，不执行任意命令。
+- PoC 策略默认开启，但硬化 CLI 尚未接入沙箱化 PoC 执行；旧 `poc_gen` 仍是研究路径，不在默认 CLI 调用。任何 PoC 只允许良性 marker。
+- LLM 默认开启但只做 advisory；生产路径的 LLM 把关（`ds_acceptance`/`accepted`）已删除。
+- 详细威胁模型与测试映射见 [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md)。
+
+
